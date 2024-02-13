@@ -516,7 +516,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         self.sam_model = self.initialize_sam(
             model_type=model_type, sam_ckpt_path=ckpt_path)
-        print(self.sam_model)
+        feedback.pushInfo(self.sam_model)
         sys.exit(1)
         self.sam_model = vit_first_layer_with_nchan(self.sam_model, len(input_bands))
 
