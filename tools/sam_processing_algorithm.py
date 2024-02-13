@@ -1,4 +1,6 @@
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import time
 from typing import Dict, Any, List
 from pathlib import Path
@@ -37,7 +39,8 @@ from qgis import processing
 from segment_anything import sam_model_registry, SamPredictor
 from segment_anything.modeling import Sam
 import torch
-from .torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
+from tools.torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
+from docs import encoder_help
 from torchgeo.samplers import Units
 from torchgeo.datasets import BoundingBox, stack_samples
 from torch.utils.data import DataLoader
@@ -47,11 +50,9 @@ import pandas as pd
 from torch import Tensor
 import hashlib
 from pyproj import CRS
+import pyproj
 from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_utm_crs_info
-from ..ui.icons import QIcon_EncoderTool
-from ..docs import encoder_help
-
 # 0 for meters, 6 for degrees, 9 for unknown
 UNIT_METERS = 0
 UNIT_DEGREES = 6
@@ -914,4 +915,15 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         # return self.tr("Generate image features using SAM image encoder.")
 
     def icon(self):
+        from ui.icons import QIcon_EncoderTool
         return QIcon_EncoderTool
+
+if __name__ == "__main__":
+    main = SamProcessingAlgorithm()
+    parameters = main.initAlgorithm()
+    print(parameters)
+    parameters={}
+    parameters['QgsRasterLayer']='test.tif'
+    context=None
+    feedback=None
+    main.processAlgorithm(parameters, context, feedback)

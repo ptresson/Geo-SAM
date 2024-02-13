@@ -4,7 +4,7 @@ from pathlib import Path
 from PyQt5.QtGui import QColor
 from qgis.gui import QgsVertexMarker
 
-from ...tools.messageTool import MessageTool
+from tools.messageTool import MessageTool
 
 __all__ = ["Settings", "DefaultSettings", "save_user_settings", "ICON_TYPE"]
 
