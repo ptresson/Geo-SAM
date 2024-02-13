@@ -545,7 +545,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         # get mean and sd of dataset from raster metadata
         # TODO get seelcted bands afterwards ? HOW ?
-        MEANS, SDS = get_mean_sd_by_band(rlayer_name)
+        MEANS, SDS = get_mean_sd_by_band(rlayer_path)
 
         SamTestRasterDataset.filename_glob = rlayer_name
         SamTestRasterDataset.all_bands = [
