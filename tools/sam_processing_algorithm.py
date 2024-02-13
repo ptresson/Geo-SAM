@@ -82,6 +82,30 @@ def vit_first_layer_with_nchan(model, in_chans=1):
 
     return model
 
+def sam_first_layer_with_nchan(model, in_chans=1):
+
+    kernel_size = model.image_encoder.patch_embed.proj.kernel_size
+    stride = model.image_encoder.patch_embed.proj.stride
+    embed_dim = model.image_encoder.patch_embed.proj.out_channels # corresponds to embed_dim
+    # copy the original patch_embed.proj config 
+    # except the number of input channels
+    new_conv = torch.nn.Conv2d(
+            in_chans, 
+            out_channels=embed_dim,
+            kernel_size=kernel_size, 
+            stride=stride
+            )
+    # copy weigths and biases
+    weight = model.image_encoder.patch_embed.proj.weight.clone()
+    bias = model.image_encoder.patch_embed.proj.bias.clone()
+    with torch.no_grad():
+        for i in range(0,in_chans):
+            j = i%3 # cycle every 3 bands
+            new_conv.weight[:,i,:,:] = weight[:,j,:,:] #band i takes old band j (blue) weights
+            new_conv.bias[:] = bias[:]
+    model.image_encoder.patch_embed.proj = new_conv
+
+    return model
 
 class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     """
@@ -518,7 +542,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             model_type=model_type, sam_ckpt_path=ckpt_path)
         feedback.pushInfo(f'{self.sam_model}')
         sys.exit(1)
-        self.sam_model = vit_first_layer_with_nchan(self.sam_model, len(input_bands))
+        self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
 
         ds_sampler = SamTestGridGeoSampler(
             rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
