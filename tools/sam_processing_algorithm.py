@@ -582,8 +582,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             model_type=model_type, sam_ckpt_path=ckpt_path)
         feedback.pushInfo(f'{self.sam_model}')
         self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
-        self.sam_model.pixel_mean = MEANS
-        self.sam_model.pixel_std = SDS
+        self.sam_model.pixel_mean = torch.Tensor(MEANS)
+        self.sam_model.pixel_std = torch.Tensor(SDS)
 
         ds_sampler = SamTestGridGeoSampler(
             rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
