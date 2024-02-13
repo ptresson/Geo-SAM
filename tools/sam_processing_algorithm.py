@@ -541,7 +541,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.sam_model = self.initialize_sam(
             model_type=model_type, sam_ckpt_path=ckpt_path)
         feedback.pushInfo(f'{self.sam_model}')
-        sys.exit(1)
         self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
 
         ds_sampler = SamTestGridGeoSampler(
