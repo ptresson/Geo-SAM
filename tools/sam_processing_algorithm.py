@@ -107,6 +107,42 @@ def sam_first_layer_with_nchan(model, in_chans=1):
 
     return model
 
+def get_mean_sd_by_band(tif, ignore_zeros=True):
+    '''
+    reads metadata or computes mean and sd of each band of a geotif
+    '''
+
+    src = rasterio.open(tif)
+    means = []
+    sds = []
+
+    for band in range(1, src.count+1):
+
+        if src.tags(band) != {}: # if metadata are available
+            mean = src.tags(band)['STATISTICS_MEAN']
+            sd = src.tags(band)['STATISTICS_STDDEV']
+
+        else: # if not, just compute it
+            if ignore_zeros:
+                arr = src.read(band)
+                # mean = np.nanmean(np.where(arr!=0,arr,np.nan),0)
+                # sd = np.nanstd(np.where(arr!=0,arr,np.nan),0)
+                mean = np.ma.masked_equal(arr, 0).mean()
+                sd = np.ma.masked_equal(arr, 0).std()
+                del arr # cleanup memory in doubt
+
+            else:    
+                arr = src.read(band)
+                mean = np.mean(arr)
+                sd = np.std(arr)
+                del arr # cleanup memory in doubt
+
+        means.append(float(mean))
+        sds.append(float(sd))
+
+    src.close()
+    return  means, sds
+
 class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     """
     This is an example algorithm that takes a vector layer and
@@ -507,6 +543,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         rlayer_dir = os.path.dirname(rlayer_path)
         rlayer_name = os.path.basename(rlayer_path)
 
+        # get mean and sd of dataset from raster metadata
+        # TODO get seelcted bands afterwards ? HOW ?
+        MEANS, SDS = get_mean_sd_by_band(rlayer_name)
+
         SamTestRasterDataset.filename_glob = rlayer_name
         SamTestRasterDataset.all_bands = [
             rlayer.bandName(i_band) for i_band in range(1, rlayer.bandCount()+1)
@@ -542,6 +582,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             model_type=model_type, sam_ckpt_path=ckpt_path)
         feedback.pushInfo(f'{self.sam_model}')
         self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
+        self.sam_model.pixel_mean = MEANS
+        self.sam_model.pixel_std = SDS
 
         ds_sampler = SamTestGridGeoSampler(
             rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
