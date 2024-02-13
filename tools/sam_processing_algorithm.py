@@ -286,10 +286,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             max_band = min(3, rlayer.bandCount())
             self.selected_bands = list(range(1, max_band+1))
 
-        if len(self.selected_bands) > 3:
-            raise QgsProcessingException(
-                self.tr("Please choose no more than three bands!")
-            )
+        # if len(self.selected_bands) > 3:
+        #     raise QgsProcessingException(
+        #         self.tr("Please choose no more than three bands!")
+        #     )
         if max(self.selected_bands) > rlayer.bandCount():
             raise QgsProcessingException(
                 self.tr("The chosen bands exceed the largest band number!")
@@ -490,8 +490,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         # currently only support rgb bands
         input_bands = [rlayer.bandName(i_band)
                        for i_band in self.selected_bands]
-        # ensure only three bands are used, less than three bands will be broadcasted to three bands
-        input_bands = (input_bands * 3)[0:3]
+        # # ensure only three bands are used, less than three bands will be broadcasted to three bands
+        # input_bands = (input_bands * 3)[0:3]
 
         if crs == rlayer.crs():
             rlayer_ds = SamTestRasterDataset(
@@ -516,6 +516,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         self.sam_model = self.initialize_sam(
             model_type=model_type, sam_ckpt_path=ckpt_path)
+        self.sam_model = vit_first_layer_with_nchan(self.sam_model, len(input_bands))
 
         ds_sampler = SamTestGridGeoSampler(
             rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
