@@ -5,3 +5,6 @@ rasters/**/*.aux.xml
 .tmp.driveupload/*
 docs/build
 ui/config/user.json
+
+checkpoint/sam_vit_l_0b3195.pth
+rasters/test_multi.tif
