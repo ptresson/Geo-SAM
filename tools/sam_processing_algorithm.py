@@ -36,6 +36,7 @@ from qgis.core import (QgsProcessing, Qgis,
 from qgis import processing
 from segment_anything import sam_model_registry, SamPredictor
 from segment_anything.modeling import Sam
+import timm
 import torch
 from .torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
 from torchgeo.samplers import Units
@@ -609,6 +610,12 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             model_type=model_type, sam_ckpt_path=ckpt_path)
         feedback.pushInfo(f'{self.sam_model}')
         self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
+        new_encoder = timm.create_model(
+                'samvit_large_patch16.sa1b',
+                pretrained=True,
+                num_classes=0,  # remove classifier nn.Linear
+                )
+        self.sam_model.image_encoder = new_encoder
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
         self.sam_model.pixel_std = torch.Tensor(SDS)
 
@@ -767,7 +774,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                        self.sam_model.pixel_std)
         # batch_input = sam_model.preprocess(batch_input)
         try:
-            features = self.sam_model.image_encoder(batch_input)
+            features = self.sam_model.image_encoder.forward_features(batch_input)
         except RuntimeError as inst:
             # torch.cuda.OutOfMemoryError
             if 'CUDA out of memory' in inst.args[0]:
