@@ -759,6 +759,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         # TODO: if the input image are all zero(batch_input.any()), directly return features with all zero and give a message
         # should know the shape of the feature in advance
         batch_input = batch_input.to(device=self.sam_model.device)
+        feedback.pushInfo(f'{self.sam_model.pixel_mean.shape}')
+        if len(self.sam_model.pixel_mean.shape) == 1:  
+            self.sam_model.pixel_mean = self.sam_model.pixel_mean.unsqueeze(1).unsqueeze(2)
+            self.sam_model.pixel_std = self.sam_model.pixel_std.unsqueeze(1).unsqueeze(2)
         batch_input = ((batch_input - self.sam_model.pixel_mean) /
                        self.sam_model.pixel_std)
         # batch_input = sam_model.preprocess(batch_input)
