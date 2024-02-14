@@ -776,8 +776,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         try:
             features = self.sam_model.image_encoder.forward_features(batch_input)
             feedback.pushInfo(f'using timm encoder')
-        except:
-            features = self.sam_model.image_encoder(batch_input)
         except RuntimeError as inst:
             # torch.cuda.OutOfMemoryError
             if 'CUDA out of memory' in inst.args[0]:
@@ -793,6 +791,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             raise QgsProcessingException(f"Unexpected {err=}, {type(err)=}")
         # batch_input = batch_input.to(device='cpu')
         # torch.cuda.empty_cache()
+        except:
+            features = self.sam_model.image_encoder(batch_input)
         self.features = features.cpu().numpy()
         return True
 
