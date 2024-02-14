@@ -161,6 +161,21 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     # used when calling the algorithm from another algorithm, or when
     # calling from the QGIS console.
 
+    # INPUT = 'INPUT'
+    # CKPT = 'CKPT'
+    # MODEL_TYPE = 'MODEL_TYPE'
+    # BANDS = 'BANDS'
+    # STRIDE = 'STRIDE'
+    # EXTENT = 'EXTENT'
+    # LOAD = 'LOAD'
+    # OUTPUT = 'OUTPUT'
+    # RANGE = 'RANGE'
+    # RESOLUTION = 'RESOLUTION'
+    # CRS = 'CRS'
+    # CUDA = 'CUDA'
+    # BATCH_SIZE = 'BATCH_SIZE'
+    # CUDA_ID = 'CUDA_ID'
+
     INPUT = 'INPUT'
     CKPT = 'CKPT'
     MODEL_TYPE = 'MODEL_TYPE'
@@ -181,13 +196,15 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         Here we define the inputs and output of the algorithm, along
         with some other properties.
         """
+        cwd = Path(__file__).parent.parent.absolute()
 
         self.addParameter(
             QgsProcessingParameterRasterLayer(
                 name=self.INPUT,
                 description=self.tr(
-                    'Input raster layer or image file path')
-            )
+                    'Input raster layer or image file path'),
+            defaultValue=os.path.join(cwd,'rasters','test_multi.tif'),
+            ),
         )
 
         self.addParameter(
@@ -195,7 +212,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name=self.BANDS,
                 description=self.tr(
                     'Select no more than 3 bands (preferably in RGB order, default to first 3 available bands)'),
-                # defaultValue=[1, 2, 3],
+                defaultValue=[1, 2, 3, 4, 5, 6, 7 ,8 , 9, 10, 11],
                 parentLayerParameterName=self.INPUT,
                 optional=True,
                 allowMultiple=True,
@@ -266,9 +283,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name=self.CKPT,
                 description=self.tr(
                     'SAM checkpoint path (download in advance)'),
+                defaultValue = os.path.join(cwd,'checkpoint','sam_vit_l_0b3195.pth'),
                 extension='pth',
             )
-        )
+        ) 
 
         self.model_type_options = ['vit_h', 'vit_l', 'vit_b']
         self.addParameter(
@@ -332,6 +350,15 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         self.iPatch = 0
         self.feature_dir = ""
+
+        feedback.pushInfo(
+                f'PARAMETERS :\n{parameters}')
+        
+        feedback.pushInfo(
+                f'CONTEXT :\n{context}')
+        
+        feedback.pushInfo(
+                f'FEEDBACK :\n{feedback}')
 
         rlayer = self.parameterAsRasterLayer(
             parameters, self.INPUT, context)
