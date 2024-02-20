@@ -57,6 +57,7 @@ from ..docs import encoder_help
 UNIT_METERS = 0
 UNIT_DEGREES = 6
 
+#Coucou
 
 def vit_first_layer_with_nchan(model, in_chans=1):
 
