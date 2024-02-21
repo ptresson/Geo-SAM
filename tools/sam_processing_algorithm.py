@@ -53,6 +53,8 @@ from pyproj.database import query_utm_crs_info
 from ..ui.icons import QIcon_EncoderTool
 from ..docs import encoder_help
 
+
+
 # 0 for meters, 6 for degrees, 9 for unknown
 UNIT_METERS = 0
 UNIT_DEGREES = 6
@@ -610,6 +612,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.sam_model = self.initialize_sam(
             model_type=model_type, sam_ckpt_path=ckpt_path)
         feedback.pushInfo(f'{self.sam_model}')
+        feedback.pushInfo(f"{timm.__version__}")
         self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
         new_encoder = timm.create_model(
                 'samvit_large_patch16.sa1b',
