@@ -38,6 +38,9 @@ from segment_anything import sam_model_registry, SamPredictor
 from segment_anything.modeling import Sam
 import timm
 import torch
+import sys
+import os
+import subprocess
 from .torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
 from torchgeo.samplers import Units
 from torchgeo.datasets import BoundingBox, stack_samples
@@ -53,11 +56,18 @@ from pyproj.database import query_utm_crs_info
 from ..ui.icons import QIcon_EncoderTool
 from ..docs import encoder_help
 
-
+#new_model = timm.create_model('samvit_large_patch16.sa1b',pretrained=True,num_classes=0,)
 
 # 0 for meters, 6 for degrees, 9 for unknown
 UNIT_METERS = 0
 UNIT_DEGREES = 6
+
+#conda_environment = "ojala"
+#activate_command = f"conda activate {conda_environment}"
+#subprocess.run(activate_command, shell = True)
+
+#eval "$(conda shell.bash hook)"
+#conda activate ojala
 
 #Coucou
 
@@ -611,17 +621,26 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         self.sam_model = self.initialize_sam(
             model_type=model_type, sam_ckpt_path=ckpt_path)
-        feedback.pushInfo(f'{self.sam_model}')
-        feedback.pushInfo(f"{timm.__version__}")
-        self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
-        new_encoder = timm.create_model(
+        
+        feedback.pushInfo(f"timm version : {timm.__version__}")
+        feedback.pushInfo(f'QGIS Python Path : {sys.executable}')
+        if 'CONDA_DEFAULT_ENV' in os.environ:
+            conda_environment = os.environ['CONDA_DEFAULT_ENV']
+            feedback.pushInfo("Conda Environment:", conda_environment)
+        else:
+            feedback.pushInfo("Not running in a Conda environment.")
+        #self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
+        timm_model = timm.create_model(
                 'samvit_large_patch16.sa1b',
                 pretrained=True,
-                num_classes=0,  # remove classifier nn.Linear
+                in_chans=len(input_bands)
                 )
-        self.sam_model.image_encoder = new_encoder
+        
+        self.sam_model.image_encoder = timm_model
+        self.sam_model.image_encoder.img_size = 1024
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
         self.sam_model.pixel_std = torch.Tensor(SDS)
+        feedback.pushInfo(f'{self.sam_model}')
 
         ds_sampler = SamTestGridGeoSampler(
             rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
@@ -771,6 +790,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         # should know the shape of the feature in advance
         batch_input = batch_input.to(device=self.sam_model.device)
         feedback.pushInfo(f'{self.sam_model.pixel_mean.shape}')
+        feedback.pushInfo(f'QGIS Python Path : {sys.executable}')
         if len(self.sam_model.pixel_mean.shape) == 1:  
             self.sam_model.pixel_mean = self.sam_model.pixel_mean.unsqueeze(1).unsqueeze(2)
             self.sam_model.pixel_std = self.sam_model.pixel_std.unsqueeze(1).unsqueeze(2)
