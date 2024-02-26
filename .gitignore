@@ -8,3 +8,8 @@ ui/config/user.json
 
 checkpoint/sam_vit_l_0b3195.pth
 rasters/test_multi.tif
+lib/
+lib64/
+bin/
+include/
+pyvenv.cfg
