@@ -68,6 +68,7 @@ UNIT_DEGREES = 6
 #conda activate ojala
 
 #Coucou
+list_features = []
 
 def vit_first_layer_with_nchan(model, in_chans=1):
 
@@ -799,7 +800,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         # batch_input = sam_model.preprocess(batch_input)
         try:
             features = self.sam_model.image_encoder.forward_features(batch_input)
+            
+            feedback.pushInfo(f'Dimension des features : {features.size()}')
+            list_features.append(features)
             feedback.pushInfo(f'using timm encoder')
+            feedback.pushInfo(f'Nbr de features enregistrées : {len(list_features)}')
         except RuntimeError as inst:
             # torch.cuda.OutOfMemoryError
             if 'CUDA out of memory' in inst.args[0]:

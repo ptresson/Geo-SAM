@@ -18,6 +18,33 @@ class FakeImageEncoderViT(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x
 
+#New class encoder to forward the points
+class PromptEncoderWithCoords(nn.Module):
+    def __init__(self, embed_dim, image_embedding_size, input_image_size, mask_in_chans):
+        super().__init__(embed_dim, image_embedding_size, input_image_size, mask_in_chans)
+
+                # Connect the map tool to click events
+        self.canvas = iface.mapCanvas()
+        self.canvas.clicked.connect(self.onCanvasClick)
+
+        # store clicked points
+        self.clicked_coordinates = []
+        
+
+    def forward(self, prompt):
+        
+        coordinates = self.clicked_coordinates
+        print("Clicked Coordinates:", coordinates)
+        
+        
+
+    def onCanvasClick(self, event):
+        # Capture the clicked coordinates
+        point = self.canvas.getCoordinateTransform().toMapCoordinates(event.x(), event.y())
+        self.clicked_coordinates.append((point.x(), point.y()))
+        #self.forward()
+
+
 
 def build_sam_no_encoder(checkpoint=None):
     prompt_embed_dim = 256
