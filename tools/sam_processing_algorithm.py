@@ -189,6 +189,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     # BATCH_SIZE = 'BATCH_SIZE'
     # CUDA_ID = 'CUDA_ID'
 
+    TEST = 'TEST'
     INPUT = 'INPUT'
     CKPT = 'CKPT'
     MODEL_TYPE = 'MODEL_TYPE'
@@ -218,6 +219,19 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     'Input raster layer or image file path'),
             defaultValue=os.path.join(cwd,'rasters','test_multi.tif'),
             ),
+        )
+
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                name=self.TEST,
+                # large images will be sampled into patches in a grid-like fashion
+                description=self.tr(
+                    'Test dvlp'),
+                type=QgsProcessingParameterNumber.Integer,
+                defaultValue=888,
+                minValue=1,
+                maxValue=1024
+            )
         )
 
         self.addParameter(
@@ -638,7 +652,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 )
         
         self.sam_model.image_encoder = timm_model
-        self.sam_model.image_encoder.img_size = 1024
+        self.sam_model.image_encoder.img_size = 224
+        #Previously 1024
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
         self.sam_model.pixel_std = torch.Tensor(SDS)
         feedback.pushInfo(f'{self.sam_model}')

@@ -1,0 +1,4 @@
+Commande dinov2 train (exemple) : 
+
+python dinov2/run/train/train.py --nodes 1 --config-file dinov2/configs/train/vitl14.yaml --output-dir /home/hadrien/Traitement_images/models/DINOv2/outputs/torchgeo train.dataset_path=/home/hadrien/Traitement_images/images/train_img dino.koleo_loss_weight=0 in_chans=1 batch_size=2 MODEL.WEIGHTS=/home/hadrien/.cache/torch/hub/checkpoints/dinov2_vitl14_pretrain.pth
+
