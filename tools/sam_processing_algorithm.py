@@ -1,5 +1,10 @@
 import os
 import time
+import tifffile
+from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
+#from remote_sensing.utils import array_to_geotiff
+import subprocess
+#from remote_sensing.visualisation import reconstruct_img_patch
 from typing import Dict, Any, List
 from pathlib import Path
 from qgis.PyQt.QtCore import QCoreApplication
@@ -60,6 +65,8 @@ from ..docs import encoder_help
 UNIT_METERS = 0
 UNIT_DEGREES = 6
 
+
+list_features = []
 #conda_environment = "ojala"
 #activate_command = f"conda activate {conda_environment}"
 #subprocess.run(activate_command, shell = True)
@@ -68,7 +75,39 @@ UNIT_DEGREES = 6
 #conda activate ojala
 
 #Coucou
-list_features = []
+
+def reconstruct_img_feat(div_images, Nx, Ny):
+    image_shape = div_images.shape[2:]  # Shape of each tensor
+    div_image_red = np.squeeze(div_images, axis = 1)
+    
+    channels, h, w = image_shape
+    
+    reconstructed_height = h * Ny
+    reconstructed_width = w * Nx
+    
+    if len(div_images.shape) == 2:
+        return np.array([[div_images[Nx * (Ny - j - 1) + i] for i in range(Nx)] for j in range(Ny)])
+    
+    # Initialize the aggregated image
+    aggregated_image = np.zeros((reconstructed_height, reconstructed_width, channels), dtype=np.float16)
+    print(aggregated_image.shape)
+
+    # Iterate over rows of the original grid
+    for j in range(Ny):
+        print(f"{j / Ny:.2%}", end="\r")
+        # Iterate over columns of the original grid
+        for i in range(Nx):
+            idx = (Ny-1-j) * Nx + i
+            if idx < len(div_images):
+                x_start = i * w
+                x_end = (i + 1) * w
+                y_start = j * h
+                y_end = (j + 1) * h
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx].transpose(1, 2, 0)
+                aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0)
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx]
+    
+    return aggregated_image
 
 def vit_first_layer_with_nchan(model, in_chans=1):
 
@@ -376,6 +415,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         """
 
         self.iPatch = 0
+        
         self.feature_dir = ""
 
         feedback.pushInfo(
@@ -652,8 +692,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 )
         
         self.sam_model.image_encoder = timm_model
-        self.sam_model.image_encoder.img_size = 224
-        #Previously 1024
+        #One can change it freely, with the condition that it should always be bigger than the stride
+        self.sam_model.image_encoder.img_size = 1024
+        
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
         self.sam_model.pixel_std = torch.Tensor(SDS)
         feedback.pushInfo(f'{self.sam_model}')
@@ -691,6 +732,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         elapsed_time_list = []
         total = 100 / len(ds_dataloader) if len(ds_dataloader) else 0
+        #start of the core of the algorithm
+        #initialization of the bboxes list
+        bboxes = []
+        
         for current, batch in enumerate(ds_dataloader):
             start_time = time.time()
             # Stop the algorithm if cancel button has been clicked
@@ -709,6 +754,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             if not self.get_sam_feature(self.batch_input, feedback):
                 self.load_feature = False
                 break
+            #To have the bboxes list
+            for sample in unbind_samples(batch):
+                bboxes.append(sample['bbox'])
 
             end_time = time.time()
             # get the execution time of sam predictor, ms
@@ -745,6 +793,32 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
             # Update the progress bar
             feedback.setProgress(int((current+1) * total))
+        feat_array = np.stack(list_features, axis = 0)
+        Nx = len(bboxes)
+        for i in range(1, len(bboxes)):
+            if bboxes[i][0] < bboxes[i - 1][0]:
+                Nx = i
+                break
+        Ny = int(len(bboxes) / Nx)
+        feedback.pushInfo(f"length of Nx : {Nx}")
+        feedback.pushInfo(f"length of Ny : {Ny}")
+        
+        image_shape = feat_array.shape[2:]  # Shape of each tensor
+        feedback.pushInfo(f"Dim de image_shape : {len(image_shape)}")
+    
+        channels, h, w = image_shape
+        feedback.pushInfo(f"nbr de channels : {channels}")
+        feedback.pushInfo(f"Hauteur : {h}")
+        feedback.pushInfo(f"Largeur : {w}")
+    
+        reconstructed_height = h * Ny
+        reconstructed_width = w * Nx
+        feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
+        feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
+        macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
+        tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/output.tiff', macro_img)
+        
+        
 
         return {"Output feature path": self.feature_dir, 'Patch samples saved': self.iPatch, 'Feature folder loaded': self.load_feature}
 
@@ -895,6 +969,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     transform=rio_transform
             ) as feature_dataset:
                 # index start from 1, feature[idx, :, :, :] = feature[idx, ...], later is faster
+                #Peut être lui passer list_features[:, idx, :, :, :]
                 feature_dataset.write(feature[idx, ...], range(1, band_num+1))
                 # pr_mask_dataset.set_band_description(1, '')
                 tags = {
@@ -905,6 +980,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 feature_dataset.update_tags(**tags)
                 feature_res = feature_dataset.res[0]
                 feature_crs = feature_dataset.crs
+            #In case of need to export each sub images in a different tiff :
+            #feature_tiff_path = str(feature_tiff)
+            #command = f'qgis {feature_tiff_path}'
+            #subprocess.Popen(command, shell=True)
 
             index_df = pd.DataFrame(columns=['minx', 'maxx', 'miny', 'maxy', 'mint', 'maxt',
                                              'filepath',

@@ -34,7 +34,7 @@ from remote_sensing.utils import array_to_geotiff
 from remote_sensing.utils import export_on_map
 from remote_sensing.utils import get_mean_sd_by_band, get_crs
 from remote_sensing.utils import remove_black_tiles, remove_empty_tiles, remove_black_tiles2
-from custom_datasets import *
+from remote_sensing.custom_datasets import *
 
 
 def fit_proj(
@@ -56,6 +56,7 @@ def fit_proj(
         min_samples=5,
         min_cluster_size=100,
         n_clusters=8,
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         ):
     """
     Fit a projection or clustering algorithm in the feature space of a deep learning model.
@@ -122,7 +123,7 @@ def fit_proj(
             images = images.squeeze(1)
         bboxes = batch['bbox']
         images = images.type(torch.float)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         images = images.to(device)
 
         do_forward = True
@@ -202,6 +203,7 @@ def inf_proj(
         path_proj_model="out/proj.pkl",
         roi=None,
         path_out=None,
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         ):
     """
     Perform inference using a pre-fitted projection model on the feature space of a deep learning model.
@@ -265,7 +267,7 @@ def inf_proj(
         if len(images.shape) > 4:
             images = images.squeeze(1)
         images = images.type(torch.float)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         images = images.to(device)
 
         # Extract bounding boxes for each sample
@@ -329,6 +331,7 @@ def inf_cluster(
         size=224, # size of sampled images
         path_proj_model= "out/proj.pkl",
         roi=None, # defaults takes all dataset bounds
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         ):
     """
     This function may be depreciated in the sense that performing a clustering on a reprojected geotiff
@@ -367,7 +370,7 @@ def inf_cluster(
             images = images.squeeze(1)
         batch_bboxes = batch['bbox']
         images = images.type(torch.float)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         images = images.to(device)
 
         do_forward = True
@@ -472,10 +475,11 @@ def export_features(
         roi=None,
         cls_token=False,
         normalize=True,
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         ):
 
     model.eval()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to("cpu")
     #model = model.cpu() #surement modifier avec un if(available) pour faire tourner en local
 
@@ -504,7 +508,7 @@ def export_features(
         if len(images.shape) > 4:
             images = images.squeeze(1)
         images = images.type(torch.float)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         images = images.to(device)
 
         for sample in unbind_samples(batch):
@@ -620,11 +624,19 @@ if __name__ == "__main__":
     ## Example workflow
     import os
     import tempfile
+    import rasterio
     from torchgeo.datasets import NAIP
     from torchgeo.datasets.utils import download_url
+    from torchgeo.datasets import RasterDataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    naip_root = os.path.join(tempfile.gettempdir(), "naip")
+    #naip_root = os.path.join(tempfile.gettempdir(), "naip")
+    naip_root = "C:/Users/pierr/newrast.tif"
+
+    with rasterio.open(naip_root) as src :
+    # Read raster data and metadata
+        raster_data = src.read()
+    
     proj_dir = os.path.join(tempfile.gettempdir(), "proj")
     proj_dir = os.path.expanduser(proj_dir)
     os.makedirs(proj_dir, exist_ok=True)
@@ -636,10 +648,10 @@ if __name__ == "__main__":
     # tile may not download properly, leading to a `TIFFReadEncodedTile() failed` error
     # a simple wget with this url probably will solve the issue
     tile = "m_3807511_ne_18_060_20181104.tif"
-    download_url(naip_url + tile, naip_root)
+    #download_url(naip_url + tile, naip_root)
 
 
-    dataset = NAIP(naip_root)
+    dataset = RasterDataset(raster_data)
 
     MEANS = [122.39, 118.23, 98.1, 120.]
     SDS = [39.81, 37.33, 33.04, 30.]
