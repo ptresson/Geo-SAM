@@ -228,7 +228,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     # BATCH_SIZE = 'BATCH_SIZE'
     # CUDA_ID = 'CUDA_ID'
 
-    TEST = 'TEST'
+    FEAT_OPTION= 'FEAT_OPTION'
     INPUT = 'INPUT'
     CKPT = 'CKPT'
     MODEL_TYPE = 'MODEL_TYPE'
@@ -260,18 +260,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             ),
         )
 
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                name=self.TEST,
-                # large images will be sampled into patches in a grid-like fashion
-                description=self.tr(
-                    'Test dvlp'),
-                type=QgsProcessingParameterNumber.Integer,
-                defaultValue=888,
-                minValue=1,
-                maxValue=1024
-            )
-        )
+
 
         self.addParameter(
             QgsProcessingParameterBand(
@@ -380,6 +369,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=True
             )
         )
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.FEAT_OPTION,
+                self.tr("Display features map"),
+                defaultValue=True
+            )
+        )
 
         self.addParameter(
             QgsProcessingParameterNumber(
@@ -417,6 +414,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.iPatch = 0
         
         self.feature_dir = ""
+        
+        self.FEAT_OPTION = self.parameterAsBoolean(
+            parameters, self.FEAT_OPTION, context)
 
         feedback.pushInfo(
                 f'PARAMETERS :\n{parameters}')
@@ -793,30 +793,35 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
             # Update the progress bar
             feedback.setProgress(int((current+1) * total))
-        feat_array = np.stack(list_features, axis = 0)
-        Nx = len(bboxes)
-        for i in range(1, len(bboxes)):
-            if bboxes[i][0] < bboxes[i - 1][0]:
-                Nx = i
-                break
-        Ny = int(len(bboxes) / Nx)
-        feedback.pushInfo(f"length of Nx : {Nx}")
-        feedback.pushInfo(f"length of Ny : {Ny}")
+        if(self.FEAT_OPTION == True) :
+            
+            feat_array = np.stack(list_features, axis = 0)
+            Nx = len(bboxes)
+            for i in range(1, len(bboxes)):
+                if bboxes[i][0] < bboxes[i - 1][0]:
+                    Nx = i
+                    break
+            Ny = int(len(bboxes) / Nx)
         
-        image_shape = feat_array.shape[2:]  # Shape of each tensor
-        feedback.pushInfo(f"Dim de image_shape : {len(image_shape)}")
+            """""
+            feedback.pushInfo(f"length of Nx : {Nx}")
+            feedback.pushInfo(f"length of Ny : {Ny}")
+        
+            image_shape = feat_array.shape[2:]  # Shape of each tensor
+            feedback.pushInfo(f"Dim de image_shape : {len(image_shape)}")
     
-        channels, h, w = image_shape
-        feedback.pushInfo(f"nbr de channels : {channels}")
-        feedback.pushInfo(f"Hauteur : {h}")
-        feedback.pushInfo(f"Largeur : {w}")
+            channels, h, w = image_shape
+            feedback.pushInfo(f"nbr de channels : {channels}")
+            feedback.pushInfo(f"Hauteur : {h}")
+            feedback.pushInfo(f"Largeur : {w}")
     
-        reconstructed_height = h * Ny
-        reconstructed_width = w * Nx
-        feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
-        feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
-        macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
-        tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/output.tiff', macro_img)
+            reconstructed_height = h * Ny
+            reconstructed_width = w * Nx
+            feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
+            feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
+            """""
+            macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
+            tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
         
         
 
