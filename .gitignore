@@ -13,3 +13,5 @@ lib64
 bin/
 include/
 pyvenv.cfg
+Cursor
+testfeat

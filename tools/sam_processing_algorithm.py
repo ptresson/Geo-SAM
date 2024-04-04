@@ -278,6 +278,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     CUDA = 'CUDA'
     BATCH_SIZE = 'BATCH_SIZE'
     CUDA_ID = 'CUDA_ID'
+    DIM_PCA = 'DIM_PCA'
 
     def initAlgorithm(self, config=None):
         """
@@ -412,6 +413,20 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=True
             )
         )
+        
+        if self.FEAT_OPTION :
+            self.addParameter (
+                QgsProcessingParameterNumber(
+                    name = self.DIM_PCA,
+                    description = self.tr(
+                        'Dimension of the PCA for the feature map (available only if "Display features map" selected) :'
+                    ),
+                    type= QgsProcessingParameterNumber.Integer,
+                    defaultValue = 3,
+                    minValue = 1,
+                    maxValue = 255
+                )
+            )
 
         self.addParameter(
             QgsProcessingParameterNumber(
@@ -452,6 +467,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         self.FEAT_OPTION = self.parameterAsBoolean(
             parameters, self.FEAT_OPTION, context)
+        
+        self.DIM_PCA = self.parameterAsInts(
+            parameters, self.DIM_PCA, context
+        )
 
         feedback.pushInfo(
                 f'PARAMETERS :\n{parameters}')
@@ -860,13 +879,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
             patch_size = 16 #depends on the kind of ViT you're using
             
-            pca = PCA(3) # take 3 principal components.
+            pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
             pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
             macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
             cwd = Path(__file__).parent.parent.absolute()
             
             output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'testfeat.tiff'
+            output_file_base = 'features_segment_antything.tiff'
             output_file = os.path.join(output_directory, output_file_base)
 
 
