@@ -1,6 +1,7 @@
 import os
 import time
 import tifffile
+from sklearn.decomposition import PCA
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 #from remote_sensing.utils import array_to_geotiff
 import subprocess
@@ -75,6 +76,40 @@ list_features = []
 #conda activate ojala
 
 #Coucou
+
+
+def array_to_geotiff(
+        array, 
+        output_file, 
+        top_left_corner_coords, 
+        pixel_width, 
+        pixel_height,
+        crs,
+        dtype='float32',
+        ):
+    """
+    Convert a numpy array to a GeoTIFF file.
+    
+    Parameters:
+        array (numpy.ndarray): The numpy array representing the raster.
+        output_file (str): The path to save the output GeoTIFF file.
+        top_left_corner_coords (tuple): Tuple containing the coordinates (x, y) of the top left corner.
+        pixel_width (float): Width of a pixel in the raster.
+        pixel_height (float): Height of a pixel in the raster.
+    """
+    from rasterio.transform import from_origin
+    # Get the dimensions of the array
+    height, width, channels = array.shape
+    
+    # Define the transformation matrix
+    transform = from_origin(top_left_corner_coords[0], top_left_corner_coords[1], pixel_width, pixel_height)
+    
+    # Create the GeoTIFF file
+    with rasterio.open(output_file, 'w', driver='GTiff',
+                       height=height, width=width, count=channels, dtype=dtype,
+                       crs=crs, transform=transform) as ds:
+        ds.write(np.transpose(array, (2, 0, 1)))
+
 
 def reconstruct_img_feat(div_images, Nx, Ny):
     image_shape = div_images.shape[2:]  # Shape of each tensor
@@ -820,8 +855,23 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
             """""
+            
             macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
-            tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
+            #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
+            patch_size = 16 #depends on the kind of ViT you're using
+            
+            pca = PCA(3) # take 3 principal components.
+            pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+            macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+            
+            array_to_geotiff(
+               array=macro_img,
+               top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
+               pixel_height= rlayer.rasterUnitsPerPixelX()*patch_size,
+               pixel_width=rlayer.rasterUnitsPerPixelY()*patch_size,
+               crs = rlayer.crs().authid(),
+               output_file='C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff',
+            )
         
         
 
