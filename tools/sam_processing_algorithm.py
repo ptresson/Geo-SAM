@@ -863,6 +863,21 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             pca = PCA(3) # take 3 principal components.
             pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
             macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+            cwd = Path(__file__).parent.parent.absolute()
+            
+            output_directory = os.path.join(cwd, 'rasters')
+            output_file_base = 'testfeat.tiff'
+            output_file = os.path.join(output_directory, output_file_base)
+
+
+            if os.path.exists(output_file):
+                i = 1
+                while True:
+                    modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                    if not os.path.exists(modified_output_file):
+                        output_file = modified_output_file
+                        break
+                    i += 1
             
             array_to_geotiff(
                array=macro_img,
@@ -870,7 +885,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                pixel_height= rlayer.rasterUnitsPerPixelX()*patch_size,
                pixel_width=rlayer.rasterUnitsPerPixelY()*patch_size,
                crs = rlayer.crs().authid(),
-               output_file='C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff',
+               #output_file='C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff',
+               #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
+               output_file = output_file,
             )
         
         
