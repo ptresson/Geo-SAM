@@ -205,25 +205,28 @@ def get_mean_sd_by_band(tif, ignore_zeros=True):
     sds = []
 
     for band in range(1, src.count+1):
+        
+        #mean = None
 
-        if src.tags(band) != {}: # if metadata are available
-            mean = src.tags(band)['STATISTICS_MEAN']
-            sd = src.tags(band)['STATISTICS_STDDEV']
+        #if src.tags(band) != {}: # if metadata are available
+            #mean = src.tags(band)['STATISTICS_MEAN']
+            #sd = src.tags(band)['STATISTICS_STDDEV']
+            #pass
 
-        else: # if not, just compute it
-            if ignore_zeros:
-                arr = src.read(band)
+       # else: # if not, just compute it
+        if ignore_zeros:
+            arr = src.read(band)
                 # mean = np.nanmean(np.where(arr!=0,arr,np.nan),0)
                 # sd = np.nanstd(np.where(arr!=0,arr,np.nan),0)
-                mean = np.ma.masked_equal(arr, 0).mean()
-                sd = np.ma.masked_equal(arr, 0).std()
-                del arr # cleanup memory in doubt
+            mean = np.ma.masked_equal(arr, 0).mean()
+            sd = np.ma.masked_equal(arr, 0).std()
+            del arr # cleanup memory in doubt
 
-            else:    
-                arr = src.read(band)
-                mean = np.mean(arr)
-                sd = np.std(arr)
-                del arr # cleanup memory in doubt
+        else:    
+            arr = src.read(band)
+            mean = np.mean(arr)
+            sd = np.std(arr)
+            del arr # cleanup memory in doubt
 
         means.append(float(mean))
         sds.append(float(sd))
@@ -885,8 +888,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
             pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
             
-            kmeans = KMeans(n_clusters=5)
-            pca_img = kmeans.fit_transform(pca_img)
+            #kmeans = KMeans(n_clusters=5)
+            #pca_img = kmeans.fit_transform(pca_img)
             macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
             
             cwd = Path(__file__).parent.parent.absolute()
