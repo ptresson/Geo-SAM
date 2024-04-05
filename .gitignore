@@ -15,4 +15,4 @@ include/
 pyvenv.cfg
 Cursor
 testfeat
-features_segment_anything
+features_segment
