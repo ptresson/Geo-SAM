@@ -1,6 +1,7 @@
 import os
 import time
 import tifffile
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 #from remote_sensing.utils import array_to_geotiff
@@ -748,8 +749,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.sam_model.image_encoder = timm_model
         #One can change it freely, with the condition that it should always be bigger than the stride
         self.sam_model.image_encoder.img_size = 1024
-        
+        feedback.pushInfo (f'moyenne originale du vecteur en 3 bandes : {self.sam_model.pixel_mean}')
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
+        feedback.pushInfo(f'moyenne recalculée : {self.sam_model.pixel_mean}')
         self.sam_model.pixel_std = torch.Tensor(SDS)
         feedback.pushInfo(f'{self.sam_model}')
 
@@ -850,6 +852,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         if(self.FEAT_OPTION == True) :
             
             feat_array = np.stack(list_features, axis = 0)
+            feedback.pushInfo(f"Dimension of feat array : {feat_array.shape}")
             Nx = len(bboxes)
             for i in range(1, len(bboxes)):
                 if bboxes[i][0] < bboxes[i - 1][0]:
@@ -881,7 +884,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
             pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+            
+            kmeans = KMeans(n_clusters=5)
+            pca_img = kmeans.fit_transform(pca_img)
             macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+            
             cwd = Path(__file__).parent.parent.absolute()
             
             output_directory = os.path.join(cwd, 'rasters')
