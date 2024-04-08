@@ -234,6 +234,8 @@ def get_mean_sd_by_band(tif, ignore_zeros=True):
     src.close()
     return  means, sds
 
+
+
 class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     """
     This is an example algorithm that takes a vector layer and
@@ -296,8 +298,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name=self.INPUT,
                 description=self.tr(
                     'Input raster layer or image file path'),
-            defaultValue=os.path.join(cwd,'rasters','test_multi.tif'),
+            defaultValue=os.path.join(cwd,'rasters','newrast.tif'),
             ),
+            #num_band_param = self.INPUT.bandCount(),
         )
 
 
@@ -307,7 +310,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name=self.BANDS,
                 description=self.tr(
                     'Select no more than 3 bands (preferably in RGB order, default to first 3 available bands)'),
+                
                 defaultValue=[1, 2, 3, 4, 5, 6, 7 ,8 , 9, 10, 11],
+                #defaultValue = list(range(1,self.INPUT.bandCount())),
                 parentLayerParameterName=self.INPUT,
                 optional=True,
                 allowMultiple=True,
@@ -743,15 +748,29 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         else:
             feedback.pushInfo("Not running in a Conda environment.")
         #self.sam_model = sam_first_layer_with_nchan(self.sam_model, len(input_bands))
+        #Ligne intéressante
+        
+        
+        #for segment anything :
+        #timm_model = timm.create_model(
+        #        'samvit_large_patch16.sa1b',
+        #        pretrained=True,
+        #        in_chans=len(input_bands)
+        #        )
+        
         timm_model = timm.create_model(
-                'samvit_large_patch16.sa1b',
-                pretrained=True,
-                in_chans=len(input_bands)
-                )
+            'vit_base_patch16_224.dino',
+            pretrained=True,
+            in_chans=len(MEANS),
+            num_classes=0
+        )
+        
+        #timm_model = timm_model.eval()
         
         self.sam_model.image_encoder = timm_model
         #One can change it freely, with the condition that it should always be bigger than the stride
-        self.sam_model.image_encoder.img_size = 1024
+        #Should be 224 or less for Dinov2, 1024 or less for segment anything
+        self.sam_model.image_encoder.img_size = 224
         feedback.pushInfo (f'moyenne originale du vecteur en 3 bandes : {self.sam_model.pixel_mean}')
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
         feedback.pushInfo(f'moyenne recalculée : {self.sam_model.pixel_mean}')
@@ -847,8 +866,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushInfo(f"Estimated time remaining: {time_remain_h:d}h:{time_remain_m:02d}m:{time_remain_s:02d}s \n \
                                   ----------------------------------------------------")
 
-            self.feature_dir = self.save_sam_feature(
-                output_dir, batch, self.features, extent_bbox, model_type)
+            #self.feature_dir = self.save_sam_feature(
+            #    output_dir, batch, self.features, extent_bbox, model_type)
 
             # Update the progress bar
             feedback.setProgress(int((current+1) * total))
@@ -885,17 +904,24 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
             patch_size = 16 #depends on the kind of ViT you're using
             
-            pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
+            
+            
+            #pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
+            pca = PCA(3)
             pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
             
             #kmeans = KMeans(n_clusters=5)
             #pca_img = kmeans.fit_transform(pca_img)
+            
+
+            
+
             macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
             
             cwd = Path(__file__).parent.parent.absolute()
             
             output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'features_segment_antything.tiff'
+            output_file_base = 'features_dinov2_PCA3.tiff'
             output_file = os.path.join(output_directory, output_file_base)
 
 
@@ -988,11 +1014,18 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         batch_input = ((batch_input - self.sam_model.pixel_mean) /
                        self.sam_model.pixel_std)
         # batch_input = sam_model.preprocess(batch_input)
+        
         try:
+            
             features = self.sam_model.image_encoder.forward_features(batch_input)
             
-            feedback.pushInfo(f'Dimension des features : {features.size()}')
-            list_features.append(features)
+            #for dinov2 :
+            features_wo_cls = features[:, 1:, :]
+            #feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
+            features_final = features_wo_cls.view(1, 14, 14, 768)
+            #feedback.pushInfo(f'features_final : {features_final.size()}')
+            
+            list_features.append(features_final)
             feedback.pushInfo(f'using timm encoder')
             feedback.pushInfo(f'Nbr de features enregistrées : {len(list_features)}')
         except RuntimeError as inst:
