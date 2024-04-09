@@ -139,11 +139,21 @@ def array_to_geotiff(
 def reconstruct_img_feat(div_images, Nx, Ny):
     #image_shape = div_images.shape[2:]  # Shape of each tensor for segment anything
     #for dinov2 :
+    #div_images = (91,1,14,14,768)
     image_shape = div_images.shape[2:]
+    #image_shape = np.array(image_shape)
+    #image_shape of dim (14,14,768)
     div_image_red = np.squeeze(div_images, axis = 1)
+    #div_image_red = (91,14,14,768)
     
-    #channels, h, w = image_shape
-    channels, h, w = image_shape
+    #channels, h, w = image_shape (for segment anything)
+    h, w, channels = image_shape
+    
+    #h = 14
+    #w = 14
+    #channels = 768
+    
+    
     
     reconstructed_height = h * Ny
     reconstructed_width = w * Nx
@@ -166,9 +176,9 @@ def reconstruct_img_feat(div_images, Nx, Ny):
                 x_end = (i + 1) * w
                 y_start = j * h
                 y_end = (j + 1) * h
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx].transpose(1,2,0)
-                aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0)
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx]
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image[idx].transpose(1,2,0)
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0) works for segment anything
+                aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx]
     
     return aggregated_image
 
@@ -926,12 +936,15 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     break
             Ny = int(len(bboxes) / Nx)
         
-            """
+            
             feedback.pushInfo(f"length of Nx : {Nx}")
             feedback.pushInfo(f"length of Ny : {Ny}")
         
-            image_shape = feat_array.shape[1:]  # Shape of each tensor
+            image_shape = feat_array.shape[2:]  # Shape of each tensor
             feedback.pushInfo(f"Dim de image_shape : {len(image_shape)}")
+            
+            div_image_red = np.squeeze(feat_array, axis = 1)
+            feedback.pushInfo(f"Dim de div_image_red : {div_image_red.shape}")
             
 
     
@@ -944,7 +957,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             reconstructed_width = w * Nx
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
-            """
+            
             
             macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
             #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
