@@ -79,6 +79,30 @@ list_features = []
 #Coucou
 
 
+def get_features(model, images, cls_token):
+
+    if cls_token:
+        if hasattr(model, 'forward_features') and callable(getattr(model, 'forward_features')):
+            features = model.forward_features(images)
+            if isinstance(features, dict): # DINOv2 implementation
+                return features['x_norm_clstoken']
+            else: # timm implementation
+                return features[:,0,:] 
+        else:
+            return model(images)
+    else:
+        if hasattr(model, 'forward_features') and callable(getattr(model, 'forward_features')):
+            features = model.forward_features(images)
+            if isinstance(features, dict):
+                return features['x_norm_patchtokens']
+            else:
+                return features[:,1:,:]
+        else:
+            print('model is probably not a ViT')
+            sys.exit(1)
+
+
+
 def array_to_geotiff(
         array, 
         output_file, 
@@ -113,9 +137,12 @@ def array_to_geotiff(
 
 
 def reconstruct_img_feat(div_images, Nx, Ny):
-    image_shape = div_images.shape[2:]  # Shape of each tensor
+    #image_shape = div_images.shape[2:]  # Shape of each tensor for segment anything
+    #for dinov2 :
+    image_shape = div_images.shape[2:]
     div_image_red = np.squeeze(div_images, axis = 1)
     
+    #channels, h, w = image_shape
     channels, h, w = image_shape
     
     reconstructed_height = h * Ny
@@ -139,7 +166,7 @@ def reconstruct_img_feat(div_images, Nx, Ny):
                 x_end = (i + 1) * w
                 y_start = j * h
                 y_end = (j + 1) * h
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx].transpose(1, 2, 0)
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx].transpose(1,2,0)
                 aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0)
                 #aggregated_image[y_start:y_end, x_start:x_end, :] = div_images[idx]
     
@@ -372,7 +399,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 description=self.tr(
                     'Stride (large image will be sampled into overlapped patches)'),
                 type=QgsProcessingParameterNumber.Integer,
-                defaultValue=512,
+                #for dinov2 :
+                defaultValue = 224,
+                #defaultValue=512,
                 minValue=1,
                 maxValue=1024
             )
@@ -811,12 +840,27 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         elapsed_time_list = []
         total = 100 / len(ds_dataloader) if len(ds_dataloader) else 0
         #start of the core of the algorithm
+        feat_img = None
+        mean_tensor = None
+        
+        
         #initialization of the bboxes list
         bboxes = []
         
         for current, batch in enumerate(ds_dataloader):
             start_time = time.time()
             # Stop the algorithm if cancel button has been clicked
+            #Modif Dino :
+            """
+            images = batch['image']
+            #feedback.pushInfo (f'longueur de images : {len(images)}')
+            #feedback.pushInfo (f'batch : {images}')
+            if len(images.shape) > 4:
+                images = images.squeeze(1)
+            images = images.type(torch.float)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            images = images.to(device)
+            """
             if feedback.isCanceled():
                 self.load_feature = False
                 feedback.pushWarning(
@@ -882,12 +926,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     break
             Ny = int(len(bboxes) / Nx)
         
-            """""
+            """
             feedback.pushInfo(f"length of Nx : {Nx}")
             feedback.pushInfo(f"length of Ny : {Ny}")
         
-            image_shape = feat_array.shape[2:]  # Shape of each tensor
+            image_shape = feat_array.shape[1:]  # Shape of each tensor
             feedback.pushInfo(f"Dim de image_shape : {len(image_shape)}")
+            
+
     
             channels, h, w = image_shape
             feedback.pushInfo(f"nbr de channels : {channels}")
@@ -898,7 +944,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             reconstructed_width = w * Nx
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
-            """""
+            """
             
             macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
             #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
@@ -1018,12 +1064,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         try:
             
             features = self.sam_model.image_encoder.forward_features(batch_input)
-            
+            #features = get_features(model, images, cls_token)
+            features = features.half()
             #for dinov2 :
             features_wo_cls = features[:, 1:, :]
-            #feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
+            feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
             features_final = features_wo_cls.view(1, 14, 14, 768)
-            #feedback.pushInfo(f'features_final : {features_final.size()}')
+            feedback.pushInfo(f'features_final : {features_final.size()}')
             
             list_features.append(features_final)
             feedback.pushInfo(f'using timm encoder')
