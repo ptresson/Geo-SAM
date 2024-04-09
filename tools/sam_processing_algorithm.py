@@ -79,30 +79,6 @@ list_features = []
 #Coucou
 
 
-def get_features(model, images, cls_token):
-
-    if cls_token:
-        if hasattr(model, 'forward_features') and callable(getattr(model, 'forward_features')):
-            features = model.forward_features(images)
-            if isinstance(features, dict): # DINOv2 implementation
-                return features['x_norm_clstoken']
-            else: # timm implementation
-                return features[:,0,:] 
-        else:
-            return model(images)
-    else:
-        if hasattr(model, 'forward_features') and callable(getattr(model, 'forward_features')):
-            features = model.forward_features(images)
-            if isinstance(features, dict):
-                return features['x_norm_patchtokens']
-            else:
-                return features[:,1:,:]
-        else:
-            print('model is probably not a ViT')
-            sys.exit(1)
-
-
-
 def array_to_geotiff(
         array, 
         output_file, 
@@ -136,8 +112,10 @@ def array_to_geotiff(
         ds.write(np.transpose(array, (2, 0, 1)))
 
 
-def reconstruct_img_feat(div_images, Nx, Ny):
+def reconstruct_img_feat_dinov2(div_images, Nx, Ny):
     #image_shape = div_images.shape[2:]  # Shape of each tensor for segment anything
+    
+    
     #for dinov2 :
     #div_images = (91,1,14,14,768)
     image_shape = div_images.shape[2:]
@@ -179,6 +157,45 @@ def reconstruct_img_feat(div_images, Nx, Ny):
                 #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image[idx].transpose(1,2,0)
                 #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0) works for segment anything
                 aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx]
+    
+    return aggregated_image
+
+
+def reconstruct_img_feat_sam(div_images, Nx, Ny):
+    image_shape = div_images.shape[2:]  # Shape of each tensor for segment anything
+    
+    
+    div_image_red = np.squeeze(div_images, axis = 1)
+    
+    
+    channels, h, w = image_shape 
+     
+    
+    
+    reconstructed_height = h * Ny
+    reconstructed_width = w * Nx
+    
+    if len(div_images.shape) == 2:
+        return np.array([[div_images[Nx * (Ny - j - 1) + i] for i in range(Nx)] for j in range(Ny)])
+    
+    # Initialize the aggregated image
+    aggregated_image = np.zeros((reconstructed_height, reconstructed_width, channels), dtype=np.float16)
+    print(aggregated_image.shape)
+
+    # Iterate over rows of the original grid
+    for j in range(Ny):
+        print(f"{j / Ny:.2%}", end="\r")
+        # Iterate over columns of the original grid
+        for i in range(Nx):
+            idx = (Ny-1-j) * Nx + i
+            if idx < len(div_images):
+                x_start = i * w
+                x_end = (i + 1) * w
+                y_start = j * h
+                y_end = (j + 1) * h
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image[idx].transpose(1,2,0)
+                aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0) #works for segment anything
+                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx]
     
     return aggregated_image
 
@@ -322,6 +339,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     BATCH_SIZE = 'BATCH_SIZE'
     CUDA_ID = 'CUDA_ID'
     DIM_PCA = 'DIM_PCA'
+    USE_DINO = 'USE_DINO'
+    
 
     def initAlgorithm(self, config=None):
         """
@@ -437,12 +456,22 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=1,  # 'vit_l'
             )
         )
+        
 
         self.addParameter(
             QgsProcessingParameterFolderDestination(
                 self.OUTPUT,
                 self.tr(
                     "Output directory (choose the location that the image features will be saved)"),
+            )
+        )
+
+
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.USE_DINO,
+                self.tr("Use dinov2 as backbone (if not, will use segment anything)"),
+                defaultValue=False
             )
         )
 
@@ -516,6 +545,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.FEAT_OPTION = self.parameterAsBoolean(
             parameters, self.FEAT_OPTION, context)
         
+        self.USE_DINO = self.parameterAsBoolean(
+            parameters, self.USE_DINO, context
+        )
+        
         self.DIM_PCA = self.parameterAsInts(
             parameters, self.DIM_PCA, context
         )
@@ -555,6 +588,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             parameters, self.CKPT, context)
         model_type_idx = self.parameterAsEnum(
             parameters, self.MODEL_TYPE, context)
+
         stride = self.parameterAsInt(
             parameters, self.STRIDE, context)
         res = self.parameterAsDouble(
@@ -659,6 +693,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         if model_type not in os.path.basename(ckpt_path):
             raise QgsProcessingException(
                 self.tr("Model type does not match the checkpoint"))
+        
+
 
         img_width_in_extent = round(
             (extent.xMaximum() - extent.xMinimum())/self.res)
@@ -790,26 +826,39 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         #Ligne intéressante
         
         
+        
+        if(self.USE_DINO==True) :
+            timm_model = timm.create_model(
+                'vit_base_patch16_224.dino',
+                pretrained=True,
+                in_chans=len(MEANS),
+                num_classes=0
+                )
+        else : 
+            timm_model = timm.create_model(
+                'samvit_large_patch16.sa1b',
+                pretrained=True,
+                in_chans=len(input_bands)
+                )
+            
         #for segment anything :
-        #timm_model = timm.create_model(
-        #        'samvit_large_patch16.sa1b',
-        #        pretrained=True,
-        #        in_chans=len(input_bands)
-        #        )
         
-        timm_model = timm.create_model(
-            'vit_base_patch16_224.dino',
-            pretrained=True,
-            in_chans=len(MEANS),
-            num_classes=0
-        )
         
+        
+        
+
         #timm_model = timm_model.eval()
         
         self.sam_model.image_encoder = timm_model
         #One can change it freely, with the condition that it should always be bigger than the stride
         #Should be 224 or less for Dinov2, 1024 or less for segment anything
-        self.sam_model.image_encoder.img_size = 224
+        
+        if(self.USE_DINO == True):
+            self.sam_model.image_encoder.img_size = 224
+        else :
+            self.sam_model.image_encoder.img_size = 1024
+        
+        
         feedback.pushInfo (f'moyenne originale du vecteur en 3 bandes : {self.sam_model.pixel_mean}')
         self.sam_model.pixel_mean = torch.Tensor(MEANS)
         feedback.pushInfo(f'moyenne recalculée : {self.sam_model.pixel_mean}')
@@ -849,9 +898,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         elapsed_time_list = []
         total = 100 / len(ds_dataloader) if len(ds_dataloader) else 0
-        #start of the core of the algorithm
-        feat_img = None
-        mean_tensor = None
+        
+        
         
         
         #initialization of the bboxes list
@@ -936,7 +984,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     break
             Ny = int(len(bboxes) / Nx)
         
-            
+            """
             feedback.pushInfo(f"length of Nx : {Nx}")
             feedback.pushInfo(f"length of Ny : {Ny}")
         
@@ -957,11 +1005,17 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             reconstructed_width = w * Nx
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
+            """
+            if(self.USE_DINO == True) :
+                macro_img = reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
+            else :
+                macro_img= reconstruct_img_feat_sam(feat_array, Nx, Ny)
             
             
-            macro_img= reconstruct_img_feat(feat_array, Nx, Ny)
+            #for dinov2 :
+            #macro_img= reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
             #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
-            patch_size = 16 #depends on the kind of ViT you're using
+            patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             
             
             
@@ -980,7 +1034,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             cwd = Path(__file__).parent.parent.absolute()
             
             output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'features_dinov2_PCA3.tiff'
+            output_file_base = 'features_test.tiff'
             output_file = os.path.join(output_directory, output_file_base)
 
 
@@ -1079,13 +1133,17 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             features = self.sam_model.image_encoder.forward_features(batch_input)
             #features = get_features(model, images, cls_token)
             features = features.half()
-            #for dinov2 :
-            features_wo_cls = features[:, 1:, :]
-            feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
-            features_final = features_wo_cls.view(1, 14, 14, 768)
-            feedback.pushInfo(f'features_final : {features_final.size()}')
             
-            list_features.append(features_final)
+            if(self.USE_DINO == True) :
+                features_wo_cls = features[:, 1:, :]
+                feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
+                features_final = features_wo_cls.view(1, 14, 14, 768)
+                feedback.pushInfo(f'features_final : {features_final.size()}')
+            
+                list_features.append(features_final)
+            else :
+                list_features.append(features)
+                
             feedback.pushInfo(f'using timm encoder')
             feedback.pushInfo(f'Nbr de features enregistrées : {len(list_features)}')
         except RuntimeError as inst:
