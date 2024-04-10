@@ -363,6 +363,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     CUDA_ID = 'CUDA_ID'
     DIM_PCA = 'DIM_PCA'
     USE_DINO = 'USE_DINO'
+    HEAT_MAP = 'HEAT_MAP'
     
 
     def initAlgorithm(self, config=None):
@@ -489,13 +490,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         )
 
 
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.USE_DINO,
-                self.tr("Use dinov2 as backbone (if not, will use segment anything)"),
-                defaultValue=False
-            )
-        )
+
 
         self.addParameter(
             QgsProcessingParameterBoolean(
@@ -507,9 +502,27 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         self.addParameter(
             QgsProcessingParameterBoolean(
+                self.USE_DINO,
+                self.tr("Use dinov2 as backbone (if not, will use segment anything)"),
+                defaultValue=False
+            )
+        )
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
                 self.FEAT_OPTION,
                 self.tr("Display features map"),
                 defaultValue=True
+            )
+        )
+        
+
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.HEAT_MAP,
+                self.tr("Display heat map using cosine similarity"),
+                defaultValue=False
             )
         )
         
@@ -569,6 +582,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         self.USE_DINO = self.parameterAsBoolean(
             parameters, self.USE_DINO, context
+        )
+        self.HEAT_MAP = self.parameterAsBoolean(
+            parameters, self.FEAT_OPTION, context
         )
         
         self.DIM_PCA = self.parameterAsInts(
@@ -1079,41 +1095,42 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
                output_file = output_file,
             )
+            if(self.HEAT_MAP == True) :
+                
+                output_directory = os.path.join(cwd, 'Shape_file_test')
+                output_file_base = 'Points.gpkg'
+                output_file_template = os.path.join(output_directory, output_file_base)
             
-            output_directory = os.path.join(cwd, 'Shape_file_test')
-            output_file_base = 'Points.gpkg'
-            output_file_template = os.path.join(output_directory, output_file_base)
-            
-            gdf = gpd.read_file(output_file_template)
-            gdf = get_pixel_values_shp(output_file, gdf)
-            #feedback.pushInfo(f'gdf : {gdf}')
+                gdf = gpd.read_file(output_file_template)
+                gdf = get_pixel_values_shp(output_file, gdf)
+                #feedback.pushInfo(f'gdf : {gdf}')
             
             
-            template_npy = np.asarray(list(gdf['px_values']))
+                template_npy = np.asarray(list(gdf['px_values']))
             #feedback.pushInfo(f'value of pixels : {template_npy}')
-            template = torch.from_numpy(template_npy)
-            template = torch.mean(template, dim=0)
+                template = torch.from_numpy(template_npy)
+                template = torch.mean(template, dim=0)
             
-            feat_img = torch.from_numpy(macro_img)
-            cos = nn.CosineSimilarity(dim=2, eps=1e-6)
+                feat_img = torch.from_numpy(macro_img)
+                cos = nn.CosineSimilarity(dim=2, eps=1e-6)
             
-            sim = cos(feat_img,template)
-            sim = sim.unsqueeze(-1)
-            sim = sim.numpy()
+                sim = cos(feat_img,template)
+                sim = sim.unsqueeze(-1)
+                sim = sim.numpy()
         
-            output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'sim_test.tiff'
-            output_file = os.path.join(output_directory, output_file_base)
+                output_directory = os.path.join(cwd, 'rasters')
+                output_file_base = 'sim_test1.tiff'
+                output_file = os.path.join(output_directory, output_file_base)
             
-            array_to_geotiff(
-            array=sim,
-            output_file=output_file,
-            top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
-            pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
-            pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
-            crs=rlayer.crs().authid(),
+                array_to_geotiff(
+                array=sim,
+                output_file=output_file,
+                top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
+                pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
+                pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
+                crs=rlayer.crs().authid(),
             # dtype='int8', ## if clusters
-            )
+                )
 
 
         return {"Output feature path": self.feature_dir, 'Patch samples saved': self.iPatch, 'Feature folder loaded': self.load_feature}
