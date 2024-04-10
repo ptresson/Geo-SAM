@@ -6,6 +6,7 @@ from sklearn.decomposition import PCA
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 #from remote_sensing.utils import array_to_geotiff
 import subprocess
+import geopandas as gpd
 #from remote_sensing.visualisation import reconstruct_img_patch
 from typing import Dict, Any, List
 from pathlib import Path
@@ -45,6 +46,7 @@ from segment_anything import sam_model_registry, SamPredictor
 from segment_anything.modeling import Sam
 import timm
 import torch
+import torch.nn as nn
 import sys
 import os
 import subprocess
@@ -77,6 +79,27 @@ list_features = []
 #conda activate ojala
 
 #Coucou
+
+
+def get_pixel_values_shp(raster_path, gdf):
+
+    with rasterio.open(raster_path) as src:
+        # Get raster metadata
+        crs = src.crs
+        raster_array = src.read()
+        xmin, ymin, xmax, ymax = src.bounds
+        ## TODO filter in xmin xmax etc...
+
+        gdf = gdf.to_crs(crs)
+        pixel_values = []
+        for point in gdf.iterrows():
+            index, data = point
+            row, col = src.index(data.geometry.x, data.geometry.y)
+            pixel_values.append(list(raster_array[:,row, col]))
+
+        gdf['px_values'] = pixel_values
+
+    return gdf
 
 
 def array_to_geotiff(
@@ -368,7 +391,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     'Select no more than 3 bands (preferably in RGB order, default to first 3 available bands)'),
                 
                 defaultValue=[1, 2, 3, 4, 5, 6, 7 ,8 , 9, 10, 11],
-                #defaultValue = list(range(1,self.INPUT.bandCount())),
                 parentLayerParameterName=self.INPUT,
                 optional=True,
                 allowMultiple=True,
@@ -1020,8 +1042,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             
             #pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
-            pca = PCA(3)
-            pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+            #pca = PCA(3)
+            #pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
             
             #kmeans = KMeans(n_clusters=5)
             #pca_img = kmeans.fit_transform(pca_img)
@@ -1029,7 +1051,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
             
 
-            macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+            #macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
             
             cwd = Path(__file__).parent.parent.absolute()
             
@@ -1057,8 +1079,42 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
                output_file = output_file,
             )
+            
+            output_directory = os.path.join(cwd, 'Shape_file_test')
+            output_file_base = 'Points.gpkg'
+            output_file_template = os.path.join(output_directory, output_file_base)
+            
+            gdf = gpd.read_file(output_file_template)
+            gdf = get_pixel_values_shp(output_file, gdf)
+            #feedback.pushInfo(f'gdf : {gdf}')
+            
+            
+            template_npy = np.asarray(list(gdf['px_values']))
+            #feedback.pushInfo(f'value of pixels : {template_npy}')
+            template = torch.from_numpy(template_npy)
+            template = torch.mean(template, dim=0)
+            
+            feat_img = torch.from_numpy(macro_img)
+            cos = nn.CosineSimilarity(dim=2, eps=1e-6)
+            
+            sim = cos(feat_img,template)
+            sim = sim.unsqueeze(-1)
+            sim = sim.numpy()
         
-        
+            output_directory = os.path.join(cwd, 'rasters')
+            output_file_base = 'sim_test.tiff'
+            output_file = os.path.join(output_directory, output_file_base)
+            
+            array_to_geotiff(
+            array=sim,
+            output_file=output_file,
+            top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
+            pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
+            pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
+            crs=rlayer.crs().authid(),
+            # dtype='int8', ## if clusters
+            )
+
 
         return {"Output feature path": self.feature_dir, 'Patch samples saved': self.iPatch, 'Feature folder loaded': self.load_feature}
 
