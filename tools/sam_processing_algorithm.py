@@ -363,8 +363,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     BATCH_SIZE = 'BATCH_SIZE'
     CUDA_ID = 'CUDA_ID'
     DIM_PCA = 'DIM_PCA'
-    USE_DINO = 'USE_DINO'
     HEAT_MAP = 'HEAT_MAP'
+    BACKBONE_CHOICE = 'BACKBONE_CHOICE'
     
 
     def initAlgorithm(self, config=None):
@@ -500,14 +500,19 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=True
             )
         )
-        
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.USE_DINO,
-                self.tr("Use dinov2 as backbone (if not, will use segment anything)"),
-                defaultValue=False
+        self.backbone_type_options = ['Dinov2' , 'Segment-anything']
+        self.addParameter (
+            QgsProcessingParameterEnum(
+                name = self.BACKBONE_CHOICE,
+                description = self.tr(
+                    'Backbone Choice (CAUTIOUS : GeoSam algorithm will only work if Segment anything is selected !)'),
+                
+                options = self.backbone_type_options,
+                defaultValue = 1,
             )
         )
+        
+
         
         self.addParameter(
             QgsProcessingParameterBoolean(
@@ -581,9 +586,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.FEAT_OPTION = self.parameterAsBoolean(
             parameters, self.FEAT_OPTION, context)
         
-        self.USE_DINO = self.parameterAsBoolean(
-            parameters, self.USE_DINO, context
-        )
+        
         self.HEAT_MAP = self.parameterAsBoolean(
             parameters, self.HEAT_MAP, context
         )
@@ -627,6 +630,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             parameters, self.CKPT, context)
         model_type_idx = self.parameterAsEnum(
             parameters, self.MODEL_TYPE, context)
+        
+        backbone_choice_idx = self.parameterAsEnum(
+            parameters, self.BACKBONE_CHOICE, context)
 
         stride = self.parameterAsInt(
             parameters, self.STRIDE, context)
@@ -729,6 +735,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 self.tr("The extent for processing is not intersected with the input image!"))
 
         model_type = self.model_type_options[model_type_idx]
+        backbone_choice = self.backbone_type_options[backbone_choice_idx]
+        feedback.pushInfo(f'backbne type : {backbone_choice}')
         if model_type not in os.path.basename(ckpt_path):
             raise QgsProcessingException(
                 self.tr("Model type does not match the checkpoint"))
@@ -866,14 +874,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         
         
-        if(self.USE_DINO==True) :
+        if(backbone_choice=='Dinov2') :
             timm_model = timm.create_model(
                 'vit_base_patch16_224.dino',
                 pretrained=True,
                 in_chans=len(MEANS),
                 num_classes=0
                 )
-        else : 
+        if(backbone_choice == 'Segment-anything') : 
             timm_model = timm.create_model(
                 'samvit_large_patch16.sa1b',
                 pretrained=True,
@@ -892,9 +900,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         #One can change it freely, with the condition that it should always be bigger than the stride
         #Should be 224 or less for Dinov2, 1024 or less for segment anything
         
-        if(self.USE_DINO == True):
+        if(backbone_choice=='Dinov2'):
             self.sam_model.image_encoder.img_size = 224
-        else :
+        if(backbone_choice == 'Segment-anything') :
             self.sam_model.image_encoder.img_size = 1024
         
         
@@ -970,7 +978,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             self.batch_input = self.rescale_img(
                 batch_input=batch['image'], range_value=range_value)
 
-            if not self.get_sam_feature(self.batch_input, feedback):
+            if not self.get_sam_feature(self.batch_input, feedback, backbone_choice=backbone_choice):
                 self.load_feature = False
                 break
             #To have the bboxes list
@@ -1006,7 +1014,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 time_remain_h, time_remain_m = divmod(time_remain_m, 60)
                 feedback.pushInfo(f"Estimated time remaining: {time_remain_h:d}h:{time_remain_m:02d}m:{time_remain_s:02d}s \n \
                                   ----------------------------------------------------")
-            if (self.USE_DINO == False) :
+            if (backbone_choice == 'Segment-anything') :
                 self.feature_dir = self.save_sam_feature(
                     output_dir, batch, self.features, extent_bbox, model_type)
 
@@ -1045,9 +1053,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
             """
-            if(self.USE_DINO == True) :
+            if(backbone_choice=='Dinov2') :
                 macro_img = reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
-            else :
+            if(backbone_choice == 'Segment-anything') :
                 macro_img= reconstruct_img_feat_sam(feat_array, Nx, Ny)
             
             
@@ -1201,7 +1209,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         return sam_model
 
     @torch.no_grad()
-    def get_sam_feature(self, batch_input: Tensor, feedback: QgsProcessingFeedback) -> bool:
+    def get_sam_feature(self, batch_input: Tensor, feedback: QgsProcessingFeedback, backbone_choice) -> bool:
         # TODO: if the input image are all zero(batch_input.any()), directly return features with all zero and give a message
         # should know the shape of the feature in advance
         batch_input = batch_input.to(device=self.sam_model.device)
@@ -1220,14 +1228,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             #features = get_features(model, images, cls_token)
             features = features.half()
             
-            if(self.USE_DINO == True) :
+            if(backbone_choice=='Dinov2') :
                 features_wo_cls = features[:, 1:, :]
                 feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
                 features_final = features_wo_cls.view(1, 14, 14, 768)
                 feedback.pushInfo(f'features_final : {features_final.size()}')
             
                 list_features.append(features_final)
-            else :
+            if(backbone_choice == 'Segment-anything') :
                 list_features.append(features)
                 
             feedback.pushInfo(f'using timm encoder')
