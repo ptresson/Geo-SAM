@@ -1006,9 +1006,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 time_remain_h, time_remain_m = divmod(time_remain_m, 60)
                 feedback.pushInfo(f"Estimated time remaining: {time_remain_h:d}h:{time_remain_m:02d}m:{time_remain_s:02d}s \n \
                                   ----------------------------------------------------")
-
-            #self.feature_dir = self.save_sam_feature(
-            #    output_dir, batch, self.features, extent_bbox, model_type)
+            if (self.USE_DINO == False) :
+                self.feature_dir = self.save_sam_feature(
+                    output_dir, batch, self.features, extent_bbox, model_type)
 
             # Update the progress bar
             feedback.setProgress(int((current+1) * total))
