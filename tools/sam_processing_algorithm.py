@@ -4,6 +4,7 @@ import tifffile
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
+from torchgeo.datasets import RasterDataset
 #from remote_sensing.utils import array_to_geotiff
 import subprocess
 import geopandas as gpd
@@ -584,7 +585,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             parameters, self.USE_DINO, context
         )
         self.HEAT_MAP = self.parameterAsBoolean(
-            parameters, self.FEAT_OPTION, context
+            parameters, self.HEAT_MAP, context
         )
         
         self.DIM_PCA = self.parameterAsInts(
@@ -1072,7 +1073,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             cwd = Path(__file__).parent.parent.absolute()
             
             output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'features_test.tiff'
+            output_file_base = 'features_test_new_size.tiff'
             output_file = os.path.join(output_directory, output_file_base)
 
 
@@ -1085,11 +1086,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                         break
                     i += 1
             
+            #rlayer = RasterDataset(rlayer)
             array_to_geotiff(
                array=macro_img,
                top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
                pixel_height= rlayer.rasterUnitsPerPixelX()*patch_size,
+               #pixel_height= rlayer.res*patch_size,
                pixel_width=rlayer.rasterUnitsPerPixelY()*patch_size,
+               #pixel_width=rlayer.res()*patch_size,
                crs = rlayer.crs().authid(),
                #output_file='C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff',
                #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
@@ -1098,7 +1102,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             if(self.HEAT_MAP == True) :
                 
                 output_directory = os.path.join(cwd, 'Shape_file_test')
-                output_file_base = 'Points.gpkg'
+                output_file_base = 'newPoints.gpkg'
                 output_file_template = os.path.join(output_directory, output_file_base)
             
                 gdf = gpd.read_file(output_file_template)
@@ -1119,8 +1123,17 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 sim = sim.numpy()
         
                 output_directory = os.path.join(cwd, 'rasters')
-                output_file_base = 'sim_test1.tiff'
+                output_file_base = 'heatmap.tiff'
                 output_file = os.path.join(output_directory, output_file_base)
+                
+                if os.path.exists(output_file):
+                    i = 1
+                    while True:
+                        modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                        if not os.path.exists(modified_output_file):
+                            output_file = modified_output_file
+                            break
+                        i += 1
             
                 array_to_geotiff(
                 array=sim,
