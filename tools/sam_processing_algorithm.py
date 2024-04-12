@@ -500,7 +500,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=True
             )
         )
-        self.backbone_type_options = ['Dinov2' , 'Segment-anything']
+        self.backbone_type_options = ['Segment-anything', 'Dinov2', 'ViT-base', 'MAE-base']
         self.addParameter (
             QgsProcessingParameterEnum(
                 name = self.BACKBONE_CHOICE,
@@ -508,7 +508,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     'Backbone Choice (CAUTIOUS : GeoSam algorithm will only work if Segment anything is selected !)'),
                 
                 options = self.backbone_type_options,
-                defaultValue = 1,
+                defaultValue = 0,
             )
         )
         
@@ -888,6 +888,21 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 in_chans=len(input_bands)
                 )
             
+        if(backbone_choice == 'ViT-base') :
+            timm_model = timm.create_model(
+                'vit_base_patch16_224.augreg_in21k',
+                pretrained=True,
+                in_chans = len(MEANS), 
+                num_classes = 0
+            )
+        if(backbone_choice == 'MAE-base') :
+            timm_model = timm.create_model(
+                'vit_base_patch16_224.augreg_in21k',
+                pretrained=True,
+                in_chans = len(MEANS), 
+                num_classes = 0
+            )
+            
         #for segment anything :
         
         
@@ -900,10 +915,12 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         #One can change it freely, with the condition that it should always be bigger than the stride
         #Should be 224 or less for Dinov2, 1024 or less for segment anything
         
-        if(backbone_choice=='Dinov2'):
-            self.sam_model.image_encoder.img_size = 224
+        #if(backbone_choice=='Dinov2'):
+            #self.sam_model.image_encoder.img_size = 224
         if(backbone_choice == 'Segment-anything') :
             self.sam_model.image_encoder.img_size = 1024
+        if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
+            self.sam_model.image_encoder.img_size = 224
         
         
         feedback.pushInfo (f'moyenne originale du vecteur en 3 bandes : {self.sam_model.pixel_mean}')
@@ -1053,7 +1070,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
             """
-            if(backbone_choice=='Dinov2') :
+            if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
                 macro_img = reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
             if(backbone_choice == 'Segment-anything') :
                 macro_img= reconstruct_img_feat_sam(feat_array, Nx, Ny)
@@ -1228,7 +1245,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             #features = get_features(model, images, cls_token)
             features = features.half()
             
-            if(backbone_choice=='Dinov2') :
+            if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
                 features_wo_cls = features[:, 1:, :]
                 feedback.pushInfo(f'features wo cls : {features_wo_cls.size()}')
                 features_final = features_wo_cls.view(1, 14, 14, 768)
