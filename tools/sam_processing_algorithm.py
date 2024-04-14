@@ -8,6 +8,7 @@ from torchgeo.datasets import RasterDataset
 #from remote_sensing.utils import array_to_geotiff
 import subprocess
 import geopandas as gpd
+import umap.umap_ as umap_m
 #from remote_sensing.visualisation import reconstruct_img_patch
 from typing import Dict, Any, List
 from pathlib import Path
@@ -363,8 +364,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     BATCH_SIZE = 'BATCH_SIZE'
     CUDA_ID = 'CUDA_ID'
     DIM_PCA = 'DIM_PCA'
+    DIM_KMEANS = 'DIM_KMEANS'
+    DIM_UMAP = 'DIM_UMAP'
     HEAT_MAP = 'HEAT_MAP'
     BACKBONE_CHOICE = 'BACKBONE_CHOICE'
+    DISPLAY_OPTION_1 = 'DISPLAY_OPTION_1'
+    DISPLAY_OPTION_2 = 'DISPLAY_OPTION_2'
+    DISPLAY_OPTION_3 = 'DISPLAY_OPTION_3'
     
 
     def initAlgorithm(self, config=None):
@@ -522,6 +528,40 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
+        self.display_opt = ['PCA', 'UMAP', 'K-means', 'Empty']
+        self.addParameter (
+            QgsProcessingParameterEnum(
+                name = self.DISPLAY_OPTION_1,
+                description = self.tr(
+                    'Display Option 1 (optional)'),
+                
+                options = self.display_opt,
+                
+            )
+        )
+        
+        self.addParameter (
+            QgsProcessingParameterEnum(
+                name = self.DISPLAY_OPTION_2,
+                description = self.tr(
+                    'Display Option 2 (optional)'),
+                
+                options = self.display_opt,
+                
+            )
+        )
+        
+        self.addParameter (
+            QgsProcessingParameterEnum(
+                name = self.DISPLAY_OPTION_3,
+                description = self.tr(
+                    'Display Option 3 (optional)'),
+                
+                options = self.display_opt,
+                
+            )
+        )
+        
 
         
         self.addParameter(
@@ -532,17 +572,41 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
-        if self.FEAT_OPTION :
-            self.addParameter (
-                QgsProcessingParameterNumber(
-                    name = self.DIM_PCA,
-                    description = self.tr(
-                        'Dimension of the PCA for the feature map (available only if "Display features map" selected) :'
-                    ),
-                    type= QgsProcessingParameterNumber.Integer,
-                    defaultValue = 3,
-                    minValue = 1,
-                    maxValue = 255
+        self.addParameter (
+            QgsProcessingParameterNumber(
+                name = self.DIM_PCA,
+                description = self.tr(
+                    'Dimension of the PCA for the feature map (available only if "Display features map" selected) :'
+                ),
+                type= QgsProcessingParameterNumber.Integer,
+                defaultValue = 3,
+                minValue = 1,
+                maxValue = 255
+                )
+            )
+        self.addParameter (
+            QgsProcessingParameterNumber(
+                name = self.DIM_KMEANS,
+                description = self.tr(
+                    'Dimension of the K-means for the feature map (available only if "Display features map" selected) :'
+                ),
+                type= QgsProcessingParameterNumber.Integer,
+                defaultValue = 5,
+                minValue = 1,
+                maxValue = 255
+                )
+            )
+        
+        self.addParameter (
+            QgsProcessingParameterNumber(
+                name = self.DIM_UMAP,
+                description = self.tr(
+                    'Dimension of the U-map for the feature map (available only if "Display features map" selected) :'
+                ),
+                type= QgsProcessingParameterNumber.Integer,
+                defaultValue = 3,
+                minValue = 1,
+                maxValue = 255
                 )
             )
 
@@ -594,6 +658,12 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.DIM_PCA = self.parameterAsInts(
             parameters, self.DIM_PCA, context
         )
+        self.DIM_KMEANS = self.parameterAsInts(
+            parameters, self.DIM_KMEANS, context
+        )
+        self.DIM_UMAP = self.parameterAsInts(
+            parameters, self.DIM_UMAP, context
+        )
 
         feedback.pushInfo(
                 f'PARAMETERS :\n{parameters}')
@@ -633,6 +703,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         backbone_choice_idx = self.parameterAsEnum(
             parameters, self.BACKBONE_CHOICE, context)
+        
+        display_opt_1_idx = self.parameterAsEnum(
+            parameters, self.DISPLAY_OPTION_1, context)
+        display_opt_2_idx = self.parameterAsEnum(
+            parameters, self.DISPLAY_OPTION_2, context)
+        display_opt_3_idx = self.parameterAsEnum(
+            parameters, self.DISPLAY_OPTION_3, context)
 
         stride = self.parameterAsInt(
             parameters, self.STRIDE, context)
@@ -736,6 +813,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         model_type = self.model_type_options[model_type_idx]
         backbone_choice = self.backbone_type_options[backbone_choice_idx]
+        display_opt_1 = self.display_opt[display_opt_1_idx]
+        display_opt_2 = self.display_opt[display_opt_2_idx]
+        display_opt_3 = self.display_opt[display_opt_3_idx]
         feedback.pushInfo(f'backbne type : {backbone_choice}')
         if model_type not in os.path.basename(ckpt_path):
             raise QgsProcessingException(
@@ -1082,10 +1162,71 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             
             
-            
-            #pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
+            if (display_opt_1 == 'PCA') :
+                pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
             #pca = PCA(3)
-            #pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                feedback.pushInfo(f'In loop 1')
+                if (display_opt_2 == 'K-means') :
+                    kmeans = KMeans(int(self.DIM_KMEANS[0]))
+                    pca_img = kmeans.fit_transform(pca_img)
+                    feedback.pushInfo(f'In loop 2')
+                    if (display_opt_3 == 'UMAP') :
+                        umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                        pca_img = umap.fit_transform(pca_img)
+                        feedback.pushInfo(f'In loop 3')
+                if (display_opt_2 == 'UMAP'):
+                    umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                    pca_img = umap.fit_transform(pca_img)
+                    if(display_opt_3 == 'K-means'):
+                        kmeans = KMeans(int(self.DIM_KMEANS[0]))
+                        pca_img = kmeans.fit_transform(pca_img)
+                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+                feedback.pushInfo(f'Sucessful !')
+            
+            if (display_opt_1 == 'K-means') :
+                kmeans = KMeans(int(self.DIM_KMEANS[0])) # take the 'n-th' principal components.
+            #pca = PCA(3)
+                pca_img = kmeans.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                feedback.pushInfo(f'In loop 1')
+                if (display_opt_2 == 'PCA') :
+                    pca = PCA(int(self.DIM_PCA[0]))
+                    pca_img = pca.fit_transform(pca_img)
+                    feedback.pushInfo(f'In loop 2')
+                    if (display_opt_3 == 'UMAP') :
+                        umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                        pca_img = umap.fit_transform(pca_img)
+                        feedback.pushInfo(f'In loop 3')
+                if (display_opt_2 == 'UMAP'):
+                    umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                    pca_img = umap.fit_transform(pca_img)
+                    if(display_opt_3 == 'PCA'):
+                        pca = PCA(int(self.DIM_PCA[0]))
+                        pca_img = pca.fit_transform(pca_img)
+                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+                feedback.pushInfo(f'Sucessful !')
+                
+            if (display_opt_1 == 'UMAP') :
+                umap = umap_m.UMAP(int(self.DIM_UMAP[0])) # take the 'n-th' principal components.
+            #pca = PCA(3)
+                pca_img = umap.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                feedback.pushInfo(f'In loop 1')
+                if (display_opt_2 == 'PCA') :
+                    pca = PCA(int(self.DIM_PCA[0]))
+                    pca_img = pca.fit_transform(pca_img)
+                    feedback.pushInfo(f'In loop 2')
+                    if (display_opt_3 == 'K-means') :
+                        kmeans = KMeans(int(self.DIM_KMEANS[0]))
+                        pca_img = kmeans.fit_transform(pca_img)
+                        feedback.pushInfo(f'In loop 3')
+                if (display_opt_2 == 'K-means'):
+                    kmeans = KMeans(int(self.DIM_KMEANS[0]))
+                    pca_img = kmeans.fit_transform(pca_img)
+                    if(display_opt_3 == 'PCA'):
+                        pca = PCA(int(self.DIM_PCA[0]))
+                        pca_img = pca.fit_transform(pca_img)
+                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+                feedback.pushInfo(f'Sucessful !')
             
             #kmeans = KMeans(n_clusters=5)
             #pca_img = kmeans.fit_transform(pca_img)
