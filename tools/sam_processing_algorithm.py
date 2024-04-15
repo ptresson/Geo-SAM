@@ -331,6 +331,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     DISPLAY_OPTION_1 = 'DISPLAY_OPTION_1'
     DISPLAY_OPTION_2 = 'DISPLAY_OPTION_2'
     DISPLAY_OPTION_3 = 'DISPLAY_OPTION_3'
+    RANDOM_FOREST = 'RANDOM_FOREST'
     
 
     def initAlgorithm(self, config=None):
@@ -489,7 +490,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
-        self.display_opt = ['PCA', 'UMAP', 'K-means', 'Empty']
+        self.display_opt = ['PCA', 'UMAP', 'K-means', '--Empty--']
         self.addParameter (
             QgsProcessingParameterEnum(
                 name = self.DISPLAY_OPTION_1,
@@ -525,13 +526,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
 
         
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.HEAT_MAP,
-                self.tr("Display heat map using cosine similarity"),
-                defaultValue=False
-            )
-        )
+
         
         self.addParameter (
             QgsProcessingParameterNumber(
@@ -570,6 +565,22 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 maxValue = 255
                 )
             )
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.HEAT_MAP,
+                self.tr("Display heat map using cosine similarity"),
+                defaultValue=False
+            )
+        )
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.RANDOM_FOREST,
+                self.tr("Use Random Forest to classify"),
+                defaultValue=False
+            )
+        )
 
         self.addParameter(
             QgsProcessingParameterNumber(
@@ -614,6 +625,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         self.HEAT_MAP = self.parameterAsBoolean(
             parameters, self.HEAT_MAP, context
+        )
+        
+        self.RANDOM_FOREST = self.parameterAsBoolean(
+            parameters, self.RANDOM_FOREST, context
         )
         
         self.DIM_PCA = self.parameterAsInts(
@@ -1255,51 +1270,62 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             # dtype='int8', ## if clusters
                 )
         
-            output_directory = os.path.join(cwd, 'RandomForest')
-            output_file_base = 'RandomForest.gpkg'
-            output_file_template = os.path.join(output_directory, output_file_base)
+            if(self.RANDOM_FOREST == True) : 
+                
+                output_directory = os.path.join(cwd, 'RandomForest')
+                output_file_base = 'RandomForest.gpkg'
+                output_file_template = os.path.join(output_directory, output_file_base)
             
-            gdf = gpd.read_file(output_file_template)
-            gdf = get_pixel_values_shp(output_file, gdf)
-            feedback.pushInfo(f'gdf : {gdf}')
+                gdf = gpd.read_file(output_file_template)
+                gdf = get_pixel_values_shp(output_file, gdf)
+                feedback.pushInfo(f'gdf : {gdf}')
             
-            #randomforest :
+                #randomforest :
             
-            X = np.asarray(list(gdf['px_values']))
-            y =gdf['Type']
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=8)
+                X = np.asarray(list(gdf['px_values']))
+                y =gdf['Type']
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=8)
             
-            rf_classifier = RandomForestClassifier(n_estimators=100, random_state=8)
-            rf_classifier.fit(X_train, y_train)
+                rf_classifier = RandomForestClassifier(n_estimators=100, random_state=8)
+                rf_classifier.fit(X_train, y_train)
             
-            y_pred = rf_classifier.predict(X_test)
-            accuracy = accuracy_score(y_test, y_pred)
-            feedback.pushInfo(f"Accuracy ; {accuracy}")
+                y_pred = rf_classifier.predict(X_test)
+                accuracy = accuracy_score(y_test, y_pred)
+                feedback.pushInfo(f"Accuracy ; {accuracy}")
             
-            macro_img_reshaped = macro_img.reshape(-1, macro_img.shape[-1])
-            feedback.pushInfo(f"shape de macro image ; {macro_img.shape}")
-            predicted_types = rf_classifier.predict(macro_img_reshaped)
-            predicted_types_image = predicted_types.reshape(macro_img.shape[:-1])
-            feedback.pushInfo(f"shape de predicted_types_image ; {predicted_types_image.shape}")
+                macro_img_reshaped = macro_img.reshape(-1, macro_img.shape[-1])
+                feedback.pushInfo(f"shape de macro image ; {macro_img.shape}")
+                predicted_types = rf_classifier.predict(macro_img_reshaped)
+                predicted_types_image = predicted_types.reshape(macro_img.shape[:-1])
+                feedback.pushInfo(f"shape de predicted_types_image ; {predicted_types_image.shape}")
             
             
-            label_encoder = LabelEncoder()
-            predicted_types_numeric = label_encoder.fit_transform(predicted_types_image.flatten())
-            predicted_types_numeric = predicted_types_numeric.reshape(predicted_types_image.shape)
+                label_encoder = LabelEncoder()
+                predicted_types_numeric = label_encoder.fit_transform(predicted_types_image.flatten())
+                predicted_types_numeric = predicted_types_numeric.reshape(predicted_types_image.shape)
             
-            output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'randomForest.tiff'
-            output_file_hm = os.path.join(output_directory, output_file_base)
+                output_directory = os.path.join(cwd, 'rasters')
+                output_file_base = 'randomForest.tiff'
+                output_file_rf = os.path.join(output_directory, output_file_base)
+                
+                if os.path.exists(output_file_rf):
+                    i = 1
+                    while True:
+                        modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                        if not os.path.exists(modified_output_file):
+                            output_file_rf = modified_output_file
+                            break
+                        i += 1
             
-            array_to_geotiff_rf_classifier(
-                array=predicted_types_numeric,
-                output_file=output_file_hm,
-                top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
-                pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
-                pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
-                crs=rlayer.crs().authid(),
+                array_to_geotiff_rf_classifier(
+                    array=predicted_types_numeric,
+                    output_file=output_file_rf,
+                    top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
+                    pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
+                    pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
+                    crs=rlayer.crs().authid(),
             # dtype='int8', ## if clusters
-                )
+                    )
             
             
 
