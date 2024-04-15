@@ -332,6 +332,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     DISPLAY_OPTION_2 = 'DISPLAY_OPTION_2'
     DISPLAY_OPTION_3 = 'DISPLAY_OPTION_3'
     RANDOM_FOREST = 'RANDOM_FOREST'
+    INPUT_RF = 'INPUT_RF'
     
 
     def initAlgorithm(self, config=None):
@@ -583,6 +584,17 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         )
 
         self.addParameter(
+            QgsProcessingParameterFile(
+                name=self.INPUT_RF,
+                description=self.tr(
+                    'Input shapefile path for random forest'),
+            defaultValue=os.path.join(cwd,'RandomForest','RandomForest.gpkg'),
+            #defaultValue = '',
+            ),
+            #num_band_param = self.INPUT.bandCount(),
+        )
+
+        self.addParameter(
             QgsProcessingParameterNumber(
                 name=self.BATCH_SIZE,
                 # large images will be sampled into patches in a grid-like fashion
@@ -652,6 +664,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         rlayer = self.parameterAsRasterLayer(
             parameters, self.INPUT, context)
+        
+        self.INPUT_RF = self.parameterAsFile(
+            parameters, self.INPUT_RF, context)
         if rlayer is None:
             raise QgsProcessingException(
                 self.invalidRasterError(parameters, self.INPUT))
@@ -1272,11 +1287,12 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
             if(self.RANDOM_FOREST == True) : 
                 
-                output_directory = os.path.join(cwd, 'RandomForest')
-                output_file_base = 'RandomForest.gpkg'
-                output_file_template = os.path.join(output_directory, output_file_base)
+                #output_directory = os.path.join(cwd, 'RandomForest')
+                #output_file_base = 'RandomForest.gpkg'
+                #output_file_template = os.path.join(output_directory, output_file_base)
             
-                gdf = gpd.read_file(output_file_template)
+                #gdf = gpd.read_file(output_file_template)
+                gdf = gpd.read_file(self.INPUT_RF)
                 gdf = get_pixel_values_shp(output_file, gdf)
                 feedback.pushInfo(f'gdf : {gdf}')
             
