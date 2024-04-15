@@ -1,15 +1,14 @@
 import os
 import time
-import tifffile
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 from torchgeo.datasets import RasterDataset
-#from remote_sensing.utils import array_to_geotiff
-import subprocess
 import geopandas as gpd
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report
 import umap.umap_ as umap_m
-#from remote_sensing.visualisation import reconstruct_img_patch
 from typing import Dict, Any, List
 from pathlib import Path
 from qgis.PyQt.QtCore import QCoreApplication
@@ -62,6 +61,7 @@ import pandas as pd
 from torch import Tensor
 import hashlib
 from pyproj import CRS
+from sklearn.preprocessing import LabelEncoder
 from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_utm_crs_info
 from ..ui.icons import QIcon_EncoderTool
@@ -94,6 +94,7 @@ def get_pixel_values_shp(raster_path, gdf):
 
         gdf = gdf.to_crs(crs)
         pixel_values = []
+        #get value of each point
         for point in gdf.iterrows():
             index, data = point
             row, col = src.index(data.geometry.x, data.geometry.y)
@@ -137,27 +138,47 @@ def array_to_geotiff(
         ds.write(np.transpose(array, (2, 0, 1)))
 
 
+def array_to_geotiff_rf_classifier(
+        array, 
+        output_file, 
+        top_left_corner_coords, 
+        pixel_width, 
+        pixel_height,
+        crs,
+        dtype='float32',
+        ):
+    """
+    Convert a numpy array to a GeoTIFF file.
+    
+    Parameters:
+        array (numpy.ndarray): The numpy array representing the raster.
+        output_file (str): The path to save the output GeoTIFF file.
+        top_left_corner_coords (tuple): Tuple containing the coordinates (x, y) of the top left corner.
+        pixel_width (float): Width of a pixel in the raster.
+        pixel_height (float): Height of a pixel in the raster.
+    """
+    from rasterio.transform import from_origin
+    # Get the dimensions of the array
+    height, width = array.shape
+    channels = 1
+    
+    # Define the transformation matrix
+    transform = from_origin(top_left_corner_coords[0], top_left_corner_coords[1], pixel_width, pixel_height)
+    
+    # Create the GeoTIFF file
+    with rasterio.open(output_file, 'w', driver='GTiff',
+                       height=height, width=width, count=channels, dtype=dtype,
+                       crs=crs, transform=transform) as ds:
+        ds.write(array,1)
+
+
 def reconstruct_img_feat_dinov2(div_images, Nx, Ny):
-    #image_shape = div_images.shape[2:]  # Shape of each tensor for segment anything
-    
-    
-    #for dinov2 :
-    #div_images = (91,1,14,14,768)
+
     image_shape = div_images.shape[2:]
-    #image_shape = np.array(image_shape)
-    #image_shape of dim (14,14,768)
+
     div_image_red = np.squeeze(div_images, axis = 1)
-    #div_image_red = (91,14,14,768)
-    
-    #channels, h, w = image_shape (for segment anything)
+
     h, w, channels = image_shape
-    
-    #h = 14
-    #w = 14
-    #channels = 768
-    
-    
-    
     reconstructed_height = h * Ny
     reconstructed_width = w * Nx
     
@@ -179,24 +200,15 @@ def reconstruct_img_feat_dinov2(div_images, Nx, Ny):
                 x_end = (i + 1) * w
                 y_start = j * h
                 y_end = (j + 1) * h
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image[idx].transpose(1,2,0)
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0) works for segment anything
                 aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx]
     
     return aggregated_image
 
 
 def reconstruct_img_feat_sam(div_images, Nx, Ny):
-    image_shape = div_images.shape[2:]  # Shape of each tensor for segment anything
-    
-    
+    image_shape = div_images.shape[2:]  
     div_image_red = np.squeeze(div_images, axis = 1)
-    
-    
     channels, h, w = image_shape 
-     
-    
-    
     reconstructed_height = h * Ny
     reconstructed_width = w * Nx
     
@@ -218,61 +230,9 @@ def reconstruct_img_feat_sam(div_images, Nx, Ny):
                 x_end = (i + 1) * w
                 y_start = j * h
                 y_end = (j + 1) * h
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image[idx].transpose(1,2,0)
-                aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0) #works for segment anything
-                #aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx]
-    
+                aggregated_image[y_start:y_end, x_start:x_end, :] = div_image_red[idx].transpose(1, 2, 0)   
     return aggregated_image
 
-def vit_first_layer_with_nchan(model, in_chans=1):
-
-    kernel_size = model.patch_embed.proj.kernel_size
-    stride = model.patch_embed.proj.stride
-    embed_dim = model.patch_embed.proj.out_channels # corresponds to embed_dim
-    # copy the original patch_embed.proj config 
-    # except the number of input channels
-    new_conv = torch.nn.Conv2d(
-            in_chans, 
-            out_channels=embed_dim,
-            kernel_size=kernel_size, 
-            stride=stride
-            )
-    # copy weigths and biases
-    weight = model.patch_embed.proj.weight.clone()
-    bias = model.patch_embed.proj.bias.clone()
-    with torch.no_grad():
-        for i in range(0,in_chans):
-            j = i%3 # cycle every 3 bands
-            new_conv.weight[:,i,:,:] = weight[:,j,:,:] #band i takes old band j (blue) weights
-            new_conv.bias[:] = bias[:]
-    model.patch_embed.proj = new_conv
-
-    return model
-
-def sam_first_layer_with_nchan(model, in_chans=1):
-
-    kernel_size = model.image_encoder.patch_embed.proj.kernel_size
-    stride = model.image_encoder.patch_embed.proj.stride
-    embed_dim = model.image_encoder.patch_embed.proj.out_channels # corresponds to embed_dim
-    # copy the original patch_embed.proj config 
-    # except the number of input channels
-    new_conv = torch.nn.Conv2d(
-            in_chans, 
-            out_channels=embed_dim,
-            kernel_size=kernel_size, 
-            stride=stride
-            )
-    # copy weigths and biases
-    weight = model.image_encoder.patch_embed.proj.weight.clone()
-    bias = model.image_encoder.patch_embed.proj.bias.clone()
-    with torch.no_grad():
-        for i in range(0,in_chans):
-            j = i%3 # cycle every 3 bands
-            new_conv.weight[:,i,:,:] = weight[:,j,:,:] #band i takes old band j (blue) weights
-            new_conv.bias[:] = bias[:]
-    model.image_encoder.patch_embed.proj = new_conv
-
-    return model
 
 def get_mean_sd_by_band(tif, ignore_zeros=True):
     '''
@@ -476,6 +436,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             )
         ) 
 
+
         self.model_type_options = ['vit_h', 'vit_l', 'vit_b']
         self.addParameter(
             QgsProcessingParameterEnum(
@@ -534,7 +495,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name = self.DISPLAY_OPTION_1,
                 description = self.tr(
                     'Display Option 1 (optional)'),
-                
+                defaultValue = 3,
                 options = self.display_opt,
                 
             )
@@ -545,7 +506,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name = self.DISPLAY_OPTION_2,
                 description = self.tr(
                     'Display Option 2 (optional)'),
-                
+                defaultValue=3,
                 options = self.display_opt,
                 
             )
@@ -556,7 +517,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 name = self.DISPLAY_OPTION_3,
                 description = self.tr(
                     'Display Option 3 (optional)'),
-                
+                defaultValue=3,
                 options = self.display_opt,
                 
             )
@@ -817,6 +778,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         display_opt_2 = self.display_opt[display_opt_2_idx]
         display_opt_3 = self.display_opt[display_opt_3_idx]
         feedback.pushInfo(f'backbne type : {backbone_choice}')
+        
         if model_type not in os.path.basename(ckpt_path):
             raise QgsProcessingException(
                 self.tr("Model type does not match the checkpoint"))
@@ -983,20 +945,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 num_classes = 0
             )
             
-        #for segment anything :
-        
-        
-        
-        
-
-        #timm_model = timm_model.eval()
         
         self.sam_model.image_encoder = timm_model
+        #self.sam_model = timm_model
+        
         #One can change it freely, with the condition that it should always be bigger than the stride
         #Should be 224 or less for Dinov2, 1024 or less for segment anything
         
-        #if(backbone_choice=='Dinov2'):
-            #self.sam_model.image_encoder.img_size = 224
         if(backbone_choice == 'Segment-anything') :
             self.sam_model.image_encoder.img_size = 1024
         if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
@@ -1051,7 +1006,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         for current, batch in enumerate(ds_dataloader):
             start_time = time.time()
-            # Stop the algorithm if cancel button has been clicked
+            
             #Modif Dino :
             """
             images = batch['image']
@@ -1063,6 +1018,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             images = images.to(device)
             """
+            # Stop the algorithm if cancel button has been clicked
             if feedback.isCanceled():
                 self.load_feature = False
                 feedback.pushWarning(
@@ -1127,7 +1083,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     Nx = i
                     break
             Ny = int(len(bboxes) / Nx)
-        
+            
+            #Show some useful informations about the reconstruction of the image if needed
             """
             feedback.pushInfo(f"length of Nx : {Nx}")
             feedback.pushInfo(f"length of Ny : {Ny}")
@@ -1156,15 +1113,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 macro_img= reconstruct_img_feat_sam(feat_array, Nx, Ny)
             
             
-            #for dinov2 :
-            #macro_img= reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
-            #tifffile.imsave('C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff', macro_img)
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             
             
             if (display_opt_1 == 'PCA') :
-                pca = PCA(int(self.DIM_PCA[0])) # take the 'n-th' principal components.
-            #pca = PCA(3)
+                pca = PCA(int(self.DIM_PCA[0])) 
                 pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'K-means') :
@@ -1185,8 +1138,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushInfo(f'Sucessful !')
             
             if (display_opt_1 == 'K-means') :
-                kmeans = KMeans(int(self.DIM_KMEANS[0])) # take the 'n-th' principal components.
-            #pca = PCA(3)
+                kmeans = KMeans(int(self.DIM_KMEANS[0])) 
                 pca_img = kmeans.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'PCA') :
@@ -1207,8 +1159,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushInfo(f'Sucessful !')
                 
             if (display_opt_1 == 'UMAP') :
-                umap = umap_m.UMAP(int(self.DIM_UMAP[0])) # take the 'n-th' principal components.
-            #pca = PCA(3)
+                umap = umap_m.UMAP(int(self.DIM_UMAP[0])) 
                 pca_img = umap.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'PCA') :
@@ -1228,13 +1179,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
                 feedback.pushInfo(f'Sucessful !')
             
-            #kmeans = KMeans(n_clusters=5)
-            #pca_img = kmeans.fit_transform(pca_img)
-            
-
-            
-
-            #macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
             
             cwd = Path(__file__).parent.parent.absolute()
             
@@ -1252,7 +1196,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                         break
                     i += 1
             
-            #rlayer = RasterDataset(rlayer)
+            #Maybe an error in the dimension of the reconstructed image
             array_to_geotiff(
                array=macro_img,
                top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
@@ -1265,8 +1209,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
                output_file = output_file,
             )
+            
             if(self.HEAT_MAP == True) :
-                
                 output_directory = os.path.join(cwd, 'Shape_file_test')
                 output_file_base = 'newPoints.gpkg'
                 output_file_template = os.path.join(output_directory, output_file_base)
@@ -1277,7 +1221,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             
                 template_npy = np.asarray(list(gdf['px_values']))
-            #feedback.pushInfo(f'value of pixels : {template_npy}')
+                #feedback.pushInfo(f'value of pixels : {template_npy}')
                 template = torch.from_numpy(template_npy)
                 template = torch.mean(template, dim=0)
             
@@ -1290,26 +1234,74 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
                 output_directory = os.path.join(cwd, 'rasters')
                 output_file_base = 'heatmap.tiff'
-                output_file = os.path.join(output_directory, output_file_base)
+                output_file_hm = os.path.join(output_directory, output_file_base)
                 
-                if os.path.exists(output_file):
+                if os.path.exists(output_file_hm):
                     i = 1
                     while True:
                         modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
                         if not os.path.exists(modified_output_file):
-                            output_file = modified_output_file
+                            output_file_hm = modified_output_file
                             break
                         i += 1
             
                 array_to_geotiff(
                 array=sim,
-                output_file=output_file,
+                output_file=output_file_hm,
                 top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
                 pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
                 pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
                 crs=rlayer.crs().authid(),
             # dtype='int8', ## if clusters
                 )
+        
+            output_directory = os.path.join(cwd, 'RandomForest')
+            output_file_base = 'RandomForest.gpkg'
+            output_file_template = os.path.join(output_directory, output_file_base)
+            
+            gdf = gpd.read_file(output_file_template)
+            gdf = get_pixel_values_shp(output_file, gdf)
+            feedback.pushInfo(f'gdf : {gdf}')
+            
+            #randomforest :
+            
+            X = np.asarray(list(gdf['px_values']))
+            y =gdf['Type']
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=8)
+            
+            rf_classifier = RandomForestClassifier(n_estimators=100, random_state=8)
+            rf_classifier.fit(X_train, y_train)
+            
+            y_pred = rf_classifier.predict(X_test)
+            accuracy = accuracy_score(y_test, y_pred)
+            feedback.pushInfo(f"Accuracy ; {accuracy}")
+            
+            macro_img_reshaped = macro_img.reshape(-1, macro_img.shape[-1])
+            feedback.pushInfo(f"shape de macro image ; {macro_img.shape}")
+            predicted_types = rf_classifier.predict(macro_img_reshaped)
+            predicted_types_image = predicted_types.reshape(macro_img.shape[:-1])
+            feedback.pushInfo(f"shape de predicted_types_image ; {predicted_types_image.shape}")
+            
+            
+            label_encoder = LabelEncoder()
+            predicted_types_numeric = label_encoder.fit_transform(predicted_types_image.flatten())
+            predicted_types_numeric = predicted_types_numeric.reshape(predicted_types_image.shape)
+            
+            output_directory = os.path.join(cwd, 'rasters')
+            output_file_base = 'randomForest.tiff'
+            output_file_hm = os.path.join(output_directory, output_file_base)
+            
+            array_to_geotiff_rf_classifier(
+                array=predicted_types_numeric,
+                output_file=output_file_hm,
+                top_left_corner_coords=(bboxes[0].minx, bboxes[-1].maxy),
+                pixel_width=rlayer.rasterUnitsPerPixelX() * patch_size,
+                pixel_height=rlayer.rasterUnitsPerPixelY() * patch_size,
+                crs=rlayer.crs().authid(),
+            # dtype='int8', ## if clusters
+                )
+            
+            
 
 
         return {"Output feature path": self.feature_dir, 'Patch samples saved': self.iPatch, 'Feature folder loaded': self.load_feature}
@@ -1378,12 +1370,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             self.sam_model.pixel_std = self.sam_model.pixel_std.unsqueeze(1).unsqueeze(2)
         batch_input = ((batch_input - self.sam_model.pixel_mean) /
                        self.sam_model.pixel_std)
-        # batch_input = sam_model.preprocess(batch_input)
+        
         
         try:
             
             features = self.sam_model.image_encoder.forward_features(batch_input)
-            #features = get_features(model, images, cls_token)
             features = features.half()
             
             if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
