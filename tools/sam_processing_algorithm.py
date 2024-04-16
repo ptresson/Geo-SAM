@@ -5,6 +5,7 @@ from sklearn.decomposition import PCA
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 from torchgeo.datasets import RasterDataset
 import geopandas as gpd
+import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
@@ -333,6 +334,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     DISPLAY_OPTION_3 = 'DISPLAY_OPTION_3'
     RANDOM_FOREST = 'RANDOM_FOREST'
     INPUT_RF = 'INPUT_RF'
+    REUSE_RF = 'REUSE_RF'
     
 
     def initAlgorithm(self, config=None):
@@ -582,6 +584,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 defaultValue=False
             )
         )
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.REUSE_RF,
+                self.tr("Reuse previous Random Forest classifier"),
+                defaultValue=False
+            )
+        )
 
         self.addParameter(
             QgsProcessingParameterFile(
@@ -641,6 +651,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         self.RANDOM_FOREST = self.parameterAsBoolean(
             parameters, self.RANDOM_FOREST, context
+        )
+        self.REUSE_RF = self.parameterAsBoolean(
+            parameters, self.REUSE_RF, context
         )
         
         self.DIM_PCA = self.parameterAsInts(
@@ -1292,22 +1305,47 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 #output_file_template = os.path.join(output_directory, output_file_base)
             
                 #gdf = gpd.read_file(output_file_template)
-                gdf = gpd.read_file(self.INPUT_RF)
-                gdf = get_pixel_values_shp(output_file, gdf)
-                feedback.pushInfo(f'gdf : {gdf}')
+                
             
                 #randomforest :
+
+                output_directory = os.path.join(cwd, 'RF_classifier')
+                output_file_base = 'random_forest.pkl'
+                model_file = os.path.join(output_directory, output_file_base)
+                
+                if os.path.exists(model_file):
+                    i = 1
+                    while True:
+                        modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                        if not os.path.exists(modified_output_file):
+                            model_file = modified_output_file
+                            break
+                        i += 1
+                
+                if(self.REUSE_RF == False ) :
+                    
+                    gdf = gpd.read_file(self.INPUT_RF)
+                    gdf = get_pixel_values_shp(output_file, gdf)
+                    feedback.pushInfo(f'gdf : {gdf}')
+                    
+                    X = np.asarray(list(gdf['px_values']))
+                    y =gdf['Type']
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=8)
+                    
             
-                X = np.asarray(list(gdf['px_values']))
-                y =gdf['Type']
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=8)
-            
-                rf_classifier = RandomForestClassifier(n_estimators=100, random_state=8)
-                rf_classifier.fit(X_train, y_train)
-            
-                y_pred = rf_classifier.predict(X_test)
-                accuracy = accuracy_score(y_test, y_pred)
-                feedback.pushInfo(f"Accuracy ; {accuracy}")
+                    rf_classifier = RandomForestClassifier(n_estimators=100, random_state=8)
+                    rf_classifier.fit(X_train, y_train)
+                
+                    
+
+                    joblib.dump(rf_classifier, model_file)
+                
+                    y_pred = rf_classifier.predict(X_test)
+                    accuracy = accuracy_score(y_test, y_pred)
+                    feedback.pushInfo(f"Accuracy ; {accuracy}")
+                
+                else :
+                    rf_classifier = joblib.load(model_file)
             
                 macro_img_reshaped = macro_img.reshape(-1, macro_img.shape[-1])
                 feedback.pushInfo(f"shape de macro image ; {macro_img.shape}")
