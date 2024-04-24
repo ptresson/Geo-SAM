@@ -2,6 +2,7 @@ import os
 import time
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+import torchgeo
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 from torchgeo.datasets import RasterDataset
 import geopandas as gpd
@@ -9,7 +10,7 @@ import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
-import umap.umap_ as umap_m
+#import umap.umap_ as umap_m
 from typing import Dict, Any, List
 from pathlib import Path
 from qgis.PyQt.QtCore import QCoreApplication
@@ -362,7 +363,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 description=self.tr(
                     'Select no more than 3 bands (preferably in RGB order, default to first 3 available bands)'),
                 
-                defaultValue=[1, 2, 3, 4, 5, 6, 7 ,8 , 9, 10, 11],
+                defaultValue=[1, 2, 3, 4, 5, 6, 7 ,8 , 9, 10,11],
                 parentLayerParameterName=self.INPUT,
                 optional=True,
                 allowMultiple=True,
@@ -948,6 +949,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             model_type=model_type, sam_ckpt_path=ckpt_path)
         
         feedback.pushInfo(f"timm version : {timm.__version__}")
+        feedback.pushInfo(f"torchgeo version : {torchgeo.__version__}")
         feedback.pushInfo(f'QGIS Python Path : {sys.executable}')
         if 'CONDA_DEFAULT_ENV' in os.environ:
             conda_environment = os.environ['CONDA_DEFAULT_ENV']
@@ -982,7 +984,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             )
         if(backbone_choice == 'MAE-base') :
             timm_model = timm.create_model(
-                'vit_base_patch16_224.augreg_in21k',
+                'vit_base_patch16_224.mae',
                 pretrained=True,
                 in_chans = len(MEANS), 
                 num_classes = 0
@@ -1168,12 +1170,12 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     pca_img = kmeans.fit_transform(pca_img)
                     feedback.pushInfo(f'In loop 2')
                     if (display_opt_3 == 'UMAP') :
-                        umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                        pca_img = umap.fit_transform(pca_img)
+                        #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                        #pca_img = umap.fit_transform(pca_img)
                         feedback.pushInfo(f'In loop 3')
                 if (display_opt_2 == 'UMAP'):
-                    umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                    pca_img = umap.fit_transform(pca_img)
+                    #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                    #pca_img = umap.fit_transform(pca_img)
                     if(display_opt_3 == 'K-means'):
                         kmeans = KMeans(int(self.DIM_KMEANS[0]))
                         pca_img = kmeans.fit_transform(pca_img)
@@ -1189,12 +1191,12 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     pca_img = pca.fit_transform(pca_img)
                     feedback.pushInfo(f'In loop 2')
                     if (display_opt_3 == 'UMAP') :
-                        umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                        pca_img = umap.fit_transform(pca_img)
+                        #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                        #pca_img = umap.fit_transform(pca_img)
                         feedback.pushInfo(f'In loop 3')
                 if (display_opt_2 == 'UMAP'):
-                    umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                    pca_img = umap.fit_transform(pca_img)
+                    #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
+                    #pca_img = umap.fit_transform(pca_img)
                     if(display_opt_3 == 'PCA'):
                         pca = PCA(int(self.DIM_PCA[0]))
                         pca_img = pca.fit_transform(pca_img)
@@ -1202,8 +1204,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushInfo(f'Sucessful !')
                 
             if (display_opt_1 == 'UMAP') :
-                umap = umap_m.UMAP(int(self.DIM_UMAP[0])) 
-                pca_img = umap.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                #umap = umap_m.UMAP(int(self.DIM_UMAP[0])) 
+                #pca_img = umap.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'PCA') :
                     pca = PCA(int(self.DIM_PCA[0]))
@@ -1313,16 +1315,18 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 output_file_base = 'random_forest.pkl'
                 model_file = os.path.join(output_directory, output_file_base)
                 
-                if os.path.exists(model_file):
-                    i = 1
-                    while True:
-                        modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
-                        if not os.path.exists(modified_output_file):
-                            model_file = modified_output_file
-                            break
-                        i += 1
+
                 
                 if(self.REUSE_RF == False ) :
+                    
+                    if os.path.exists(model_file):
+                        i  = 1
+                        while True:
+                            modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                            if not os.path.exists(modified_output_file):
+                                model_file = modified_output_file
+                                break
+                            i += 1
                     
                     gdf = gpd.read_file(self.INPUT_RF)
                     gdf = get_pixel_values_shp(output_file, gdf)
