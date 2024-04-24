@@ -57,6 +57,7 @@ import subprocess
 from .torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
 from torchgeo.samplers import Units
 from torchgeo.datasets import BoundingBox, stack_samples
+from torchgeo.samplers import GridGeoSampler
 from torch.utils.data import DataLoader
 import rasterio
 import numpy as np
@@ -337,6 +338,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     RANDOM_FOREST = 'RANDOM_FOREST'
     INPUT_RF = 'INPUT_RF'
     REUSE_RF = 'REUSE_RF'
+    TEST = 'TEST'
     
 
     def initAlgorithm(self, config=None):
@@ -591,6 +593,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             QgsProcessingParameterBoolean(
                 self.REUSE_RF,
                 self.tr("Reuse previous Random Forest classifier"),
+                defaultValue=False
+            )
+        )
+        
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.TEST,
+                self.tr("Test"),
                 defaultValue=False
             )
         )
@@ -934,15 +944,25 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         # input_bands = (input_bands * 3)[0:3]
         transform_data = K.Resize((1024,1024))
         
-
+        """
         if crs == rlayer.crs():
             rlayer_ds = SamTestRasterDataset( #normally SamTestRasterDataset
                 root=rlayer_dir, crs=None, res=self.res, bands=input_bands, cache=False)
         else:
             rlayer_ds = SamTestRasterDataset(
                 root=rlayer_dir, crs=crs.toWkt(), res=self.res, bands=input_bands, cache=False)
+        """    
+        
+        
+        if crs == rlayer.crs():
+            rlayer_ds = RasterDataset( #normally SamTestRasterDataset
+                paths=rlayer_dir, crs=None, res=self.res, bands=input_bands, cache=False)
+        else:
+            rlayer_ds = RasterDataset(
+                paths=rlayer_dir, crs=crs.toWkt(), res=self.res, bands=input_bands, cache=False)
+            
         # \n raster_ds crs: {str(CRS(rlayer_ds.crs))}, \
-        rlayer_ds.transforms = transform_data
+        #rlayer_ds.transforms = transform_data
         feedback.pushInfo(
             f'\n RasterDataset info: \
             \n filename_glob: {rlayer_ds.filename_glob}, \
@@ -1021,8 +1041,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.sam_model.pixel_std = torch.Tensor(SDS)
         feedback.pushInfo(f'{self.sam_model}')
 
-        ds_sampler = SamTestGridGeoSampler( #Normally SamTestGridGeoSampler
-            rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
+        # ds_sampler = SamTestGridGeoSampler( #Normally SamTestGridGeoSampler
+        #     rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS    rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS    rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
+        ds_sampler = GridGeoSampler( #Normally SamTestGridGeoSampler
+            rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=self.sam_model.image_encoder.img_size, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
 
         if len(ds_sampler) == 0:
             self.load_feature = False
@@ -1042,9 +1064,15 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(
                 f'Device type: {self.sam_model.device}')
 
+        ds_sampler = GridGeoSampler( #Normally SamTestGridGeoSampler
+                                                   
+            rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS) 
+        """
         feedback.pushInfo(
             f'Patch size: {ds_sampler.patch_size} \n \
             Batch size: {batch_size}')
+        """
+        # Units.CRS or Units.PIXELS
         ds_dataloader = DataLoader(
             rlayer_ds, batch_size=batch_size, sampler=ds_sampler, collate_fn=stack_samples)
 
@@ -1087,8 +1115,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     self.tr("\n !!!Processing is canceled by user!!! \n"))
                 break
             feedback.pushInfo(f'Batch no. {current+1} loaded')
+            """
             feedback.pushInfo(f'img_shape: ' + str(batch['img_shape'][0]))
             feedback.pushInfo('patch_size: ' + str(batch['image'].shape))
+            """
 
             self.batch_input = self.rescale_img(
                 batch_input=batch['image'], range_value=range_value)
@@ -1129,9 +1159,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 time_remain_h, time_remain_m = divmod(time_remain_m, 60)
                 feedback.pushInfo(f"Estimated time remaining: {time_remain_h:d}h:{time_remain_m:02d}m:{time_remain_s:02d}s \n \
                                   ----------------------------------------------------")
+            """
             if (backbone_choice == 'Segment-anything') :
                 self.feature_dir = self.save_sam_feature(
                     output_dir, batch, self.features, extent_bbox, model_type)
+            """
 
             # Update the progress bar
             feedback.setProgress(int((current+1) * total))
