@@ -3,6 +3,7 @@ import time
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import torchgeo
+import kornia.augmentation as K
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 from torchgeo.datasets import RasterDataset
 import geopandas as gpd
@@ -914,23 +915,34 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         MEANS = [MEANS[i-1] for i in self.selected_bands]
         SDS = [SDS[i-1] for i in self.selected_bands]
 
+        """
         SamTestRasterDataset.filename_glob = rlayer_name
         SamTestRasterDataset.all_bands = [
             rlayer.bandName(i_band) for i_band in range(1, rlayer.bandCount()+1)
         ]
+        """
+        
+        SamTestRasterDataset.filename_glob = rlayer_name
+        SamTestRasterDataset.all_bands = [
+            rlayer.bandName(i_band) for i_band in range(1, rlayer.bandCount()+1)
+        ]
+        
         # currently only support rgb bands
         input_bands = [rlayer.bandName(i_band)
                        for i_band in self.selected_bands]
         # # ensure only three bands are used, less than three bands will be broadcasted to three bands
         # input_bands = (input_bands * 3)[0:3]
+        transform_data = K.Resize((1024,1024))
+        
 
         if crs == rlayer.crs():
-            rlayer_ds = SamTestRasterDataset(
+            rlayer_ds = SamTestRasterDataset( #normally SamTestRasterDataset
                 root=rlayer_dir, crs=None, res=self.res, bands=input_bands, cache=False)
         else:
             rlayer_ds = SamTestRasterDataset(
                 root=rlayer_dir, crs=crs.toWkt(), res=self.res, bands=input_bands, cache=False)
         # \n raster_ds crs: {str(CRS(rlayer_ds.crs))}, \
+        rlayer_ds.transforms = transform_data
         feedback.pushInfo(
             f'\n RasterDataset info: \
             \n filename_glob: {rlayer_ds.filename_glob}, \
@@ -1009,7 +1021,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.sam_model.pixel_std = torch.Tensor(SDS)
         feedback.pushInfo(f'{self.sam_model}')
 
-        ds_sampler = SamTestGridGeoSampler(
+        ds_sampler = SamTestGridGeoSampler( #Normally SamTestGridGeoSampler
             rlayer_ds, size=self.sam_model.image_encoder.img_size, stride=stride, roi=extent_bbox, units=Units.PIXELS)  # Units.CRS or Units.PIXELS
 
         if len(ds_sampler) == 0:
@@ -1043,15 +1055,20 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         elapsed_time_list = []
         total = 100 / len(ds_dataloader) if len(ds_dataloader) else 0
         
-        
+        feedback.pushInfo(f'Dataloader: {ds_dataloader}')
         
         
         #initialization of the bboxes list
         bboxes = []
         
+        for i, batch in enumerate(ds_dataloader) :
+            feedback.pushInfo(f'Batch: {i+1}')
+            for j, data in enumerate(batch):
+                feedback.pushInfo(f'Data: {j+1} shape : {data}')
+        
         for current, batch in enumerate(ds_dataloader):
             start_time = time.time()
-            
+        
             #Modif Dino :
             """
             images = batch['image']
