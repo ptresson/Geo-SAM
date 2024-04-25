@@ -1,20 +1,53 @@
 import os
 import time
-import shutil
-import rasterio.mask
-from sklearn.cluster import KMeans
-from shapely.geometry import MultiPolygon, Polygon
-from sklearn.decomposition import PCA
+import sys
+import numpy as np
+import pandas as pd
+import hashlib
+from pyproj import CRS
+
+
+#torchgeo
 import torchgeo
-import kornia.augmentation as K
 from torchgeo.datasets import BoundingBox, stack_samples, unbind_samples
 from torchgeo.datasets import RasterDataset
+from torchgeo.samplers import Units
+from torchgeo.datasets import BoundingBox, stack_samples
+from torchgeo.samplers import GridGeoSampler
+from torch.utils.data import DataLoader
+
+#pytorch
 import geopandas as gpd
+import timm
+import torch
+import torch.nn as nn
+from torch import Tensor
+
+# data
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import LabelEncoder
 #import umap.umap_ as umap_m
+
+#rasterio
+import rasterio
+import rasterio.mask
+from shapely.geometry import MultiPolygon, Polygon
+
+#segmentanything
+from segment_anything import sam_model_registry, SamPredictor
+from segment_anything.modeling import Sam
+
+#local
+from .torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
+
+
+
+
 from typing import Dict, Any, List
 from pathlib import Path
 from qgis.PyQt.QtCore import QCoreApplication
@@ -49,26 +82,11 @@ from qgis.core import (QgsProcessing, Qgis,
                        QgsProcessingParameterDefinition,
                        QgsProcessingParameterFeatureSink)
 from qgis import processing
-from segment_anything import sam_model_registry, SamPredictor
-from segment_anything.modeling import Sam
-import timm
-import torch
-import torch.nn as nn
-import sys
-import os
-import subprocess
-from .torchgeo_sam import SamTestGridGeoSampler, SamTestRasterDataset
-from torchgeo.samplers import Units
-from torchgeo.datasets import BoundingBox, stack_samples
-from torchgeo.samplers import GridGeoSampler
-from torch.utils.data import DataLoader
-import rasterio
-import numpy as np
-import pandas as pd
-from torch import Tensor
-import hashlib
-from pyproj import CRS
-from sklearn.preprocessing import LabelEncoder
+
+
+
+
+
 from pyproj.aoi import AreaOfInterest
 from pyproj.database import query_utm_crs_info
 from ..ui.icons import QIcon_EncoderTool
@@ -332,14 +350,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     CUDA = 'CUDA'
     BATCH_SIZE = 'BATCH_SIZE'
     CUDA_ID = 'CUDA_ID'
-    DIM_PCA = 'DIM_PCA'
-    DIM_KMEANS = 'DIM_KMEANS'
-    DIM_UMAP = 'DIM_UMAP'
+    DIM_FEAT_RED = 'DIM_FEAT_RED'
+    DIM_CLUSTER = 'DIM_CLUSTER'
     HEAT_MAP = 'HEAT_MAP'
     BACKBONE_CHOICE = 'BACKBONE_CHOICE'
-    DISPLAY_OPTION_1 = 'DISPLAY_OPTION_1'
-    DISPLAY_OPTION_2 = 'DISPLAY_OPTION_2'
-    DISPLAY_OPTION_3 = 'DISPLAY_OPTION_3'
+    FEAT_RED = 'FEAT_RED'
+    DISPLAY_OPTION_1 = 'DISPLAY_OPTION_2'
+    DISPLAY_OPTION_2 = 'DISPLAY_OPTION_3'
     RANDOM_FOREST = 'RANDOM_FOREST'
     INPUT_RF = 'INPUT_RF'
     REUSE_RF = 'REUSE_RF'
@@ -502,61 +519,34 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
-        self.display_opt = ['PCA', 'UMAP', 'K-means', '--Empty--']
+        self.display_opt_featred = ['PCA', 'UMAP', '--Empty--']
         self.addParameter (
             QgsProcessingParameterEnum(
                 name = self.DISPLAY_OPTION_1,
                 description = self.tr(
-                    'Display Option 1 (optional)'),
-                defaultValue = 3,
-                options = self.display_opt,
+                    'Features reduction option (optional)'),
+                defaultValue = 2,
+                options = self.display_opt_featred,
                 
             )
         )
-        
+        self.display_opt_clust = ['K-means', '--Empty--']
         self.addParameter (
             QgsProcessingParameterEnum(
                 name = self.DISPLAY_OPTION_2,
                 description = self.tr(
-                    'Display Option 2 (optional)'),
-                defaultValue=3,
-                options = self.display_opt,
+                    'Clustering (optional)'),
+                defaultValue=1,
+                options = self.display_opt_clust,
                 
             )
         )
-        
-        self.addParameter (
-            QgsProcessingParameterEnum(
-                name = self.DISPLAY_OPTION_3,
-                description = self.tr(
-                    'Display Option 3 (optional)'),
-                defaultValue=3,
-                options = self.display_opt,
-                
-            )
-        )
-        
 
-        
-
-        
         self.addParameter (
             QgsProcessingParameterNumber(
-                name = self.DIM_PCA,
+                name = self.DIM_FEAT_RED,
                 description = self.tr(
-                    'Dimension of the PCA for the feature map (available only if "Display features map" selected) :'
-                ),
-                type= QgsProcessingParameterNumber.Integer,
-                defaultValue = 3,
-                minValue = 1,
-                maxValue = 255
-                )
-            )
-        self.addParameter (
-            QgsProcessingParameterNumber(
-                name = self.DIM_KMEANS,
-                description = self.tr(
-                    'Dimension of the K-means for the feature map (available only if "Display features map" selected) :'
+                    'Dimension of features reduction (available only if "Display features map" selected) :'
                 ),
                 type= QgsProcessingParameterNumber.Integer,
                 defaultValue = 5,
@@ -564,12 +554,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 maxValue = 255
                 )
             )
-        
         self.addParameter (
             QgsProcessingParameterNumber(
-                name = self.DIM_UMAP,
+                name = self.DIM_CLUSTER,
                 description = self.tr(
-                    'Dimension of the U-map for the feature map (available only if "Display features map" selected) :'
+                    'Dimension of the clustering for the feature map (available only if "Display features map" selected) :'
                 ),
                 type= QgsProcessingParameterNumber.Integer,
                 defaultValue = 3,
@@ -577,6 +566,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 maxValue = 255
                 )
             )
+        
         
         self.addParameter(
             QgsProcessingParameterBoolean(
@@ -673,15 +663,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             parameters, self.REUSE_RF, context
         )
         
-        self.DIM_PCA = self.parameterAsInts(
-            parameters, self.DIM_PCA, context
+        self.DIM_FEAT_RED = self.parameterAsInts(
+            parameters, self.DIM_FEAT_RED, context
         )
         self.DIM_KMEANS = self.parameterAsInts(
-            parameters, self.DIM_KMEANS, context
+            parameters, self.DIM_CLUSTER, context
         )
-        self.DIM_UMAP = self.parameterAsInts(
-            parameters, self.DIM_UMAP, context
-        )
+
 
         feedback.pushInfo(
                 f'PARAMETERS :\n{parameters}')
@@ -729,8 +717,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             parameters, self.DISPLAY_OPTION_1, context)
         display_opt_2_idx = self.parameterAsEnum(
             parameters, self.DISPLAY_OPTION_2, context)
-        display_opt_3_idx = self.parameterAsEnum(
-            parameters, self.DISPLAY_OPTION_3, context)
+
 
         stride = self.parameterAsInt(
             parameters, self.STRIDE, context)
@@ -834,9 +821,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
         model_type = self.model_type_options[model_type_idx]
         backbone_choice = self.backbone_type_options[backbone_choice_idx]
-        display_opt_1 = self.display_opt[display_opt_1_idx]
-        display_opt_2 = self.display_opt[display_opt_2_idx]
-        display_opt_3 = self.display_opt[display_opt_3_idx]
+        display_opt_1 = self.display_opt_featred[display_opt_1_idx]
+        display_opt_2 = self.display_opt_clust[display_opt_2_idx]
+
         feedback.pushInfo(f'backbne type : {backbone_choice}')
         
         if model_type not in os.path.basename(ckpt_path):
@@ -947,7 +934,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                        for i_band in self.selected_bands]
         # # ensure only three bands are used, less than three bands will be broadcasted to three bands
         # input_bands = (input_bands * 3)[0:3]
-        transform_data = K.Resize((1024,1024))
+
         
         """
         if crs == rlayer.crs():
@@ -1212,65 +1199,27 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             
             if (display_opt_1 == 'PCA') :
-                pca = PCA(int(self.DIM_PCA[0])) 
+                pca = PCA(int(self.DIM_FEAT_RED[0])) 
                 pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'K-means') :
-                    kmeans = KMeans(int(self.DIM_KMEANS[0]))
-                    pca_img = kmeans.fit_transform(pca_img)
+                    kmeans = KMeans(int(self.DIM_CLUSTER[0]))
+                    pca_img = kmeans.fit_predict(pca_img)
                     feedback.pushInfo(f'In loop 2')
-                    if (display_opt_3 == 'UMAP') :
-                        #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                        #pca_img = umap.fit_transform(pca_img)
-                        feedback.pushInfo(f'In loop 3')
-                if (display_opt_2 == 'UMAP'):
-                    #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                    #pca_img = umap.fit_transform(pca_img)
-                    if(display_opt_3 == 'K-means'):
-                        kmeans = KMeans(int(self.DIM_KMEANS[0]))
-                        pca_img = kmeans.fit_transform(pca_img)
-                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
-                feedback.pushInfo(f'Sucessful !')
-            
-            if (display_opt_1 == 'K-means') :
-                kmeans = KMeans(int(self.DIM_KMEANS[0])) 
-                pca_img = kmeans.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
-                feedback.pushInfo(f'In loop 1')
-                if (display_opt_2 == 'PCA') :
-                    pca = PCA(int(self.DIM_PCA[0]))
-                    pca_img = pca.fit_transform(pca_img)
-                    feedback.pushInfo(f'In loop 2')
-                    if (display_opt_3 == 'UMAP') :
-                        #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                        #pca_img = umap.fit_transform(pca_img)
-                        feedback.pushInfo(f'In loop 3')
-                if (display_opt_2 == 'UMAP'):
-                    #umap = umap_m.UMAP(int(self.DIM_UMAP[0]))
-                    #pca_img = umap.fit_transform(pca_img)
-                    if(display_opt_3 == 'PCA'):
-                        pca = PCA(int(self.DIM_PCA[0]))
-                        pca_img = pca.fit_transform(pca_img)
+
                 macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
                 feedback.pushInfo(f'Sucessful !')
                 
             if (display_opt_1 == 'UMAP') :
-                #umap = umap_m.UMAP(int(self.DIM_UMAP[0])) 
+                #umap = umap_m.UMAP(int(self.DIM_FEAT_RED[0])) 
                 #pca_img = umap.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
-                if (display_opt_2 == 'PCA') :
-                    pca = PCA(int(self.DIM_PCA[0]))
-                    pca_img = pca.fit_transform(pca_img)
-                    feedback.pushInfo(f'In loop 2')
-                    if (display_opt_3 == 'K-means') :
-                        kmeans = KMeans(int(self.DIM_KMEANS[0]))
-                        pca_img = kmeans.fit_transform(pca_img)
-                        feedback.pushInfo(f'In loop 3')
+                pass
+
                 if (display_opt_2 == 'K-means'):
-                    kmeans = KMeans(int(self.DIM_KMEANS[0]))
-                    pca_img = kmeans.fit_transform(pca_img)
-                    if(display_opt_3 == 'PCA'):
-                        pca = PCA(int(self.DIM_PCA[0]))
-                        pca_img = pca.fit_transform(pca_img)
+                    kmeans = KMeans(int(self.DIM_CLUSTER[0]))
+                    pca_img = kmeans.fit_predict(pca_img)
+
                 macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
                 feedback.pushInfo(f'Sucessful !')
             
@@ -1313,10 +1262,19 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             output_file_base = 'masked_features.tiff'
             masked_output_file = os.path.join(output_directory, output_file_base)
             
-            bot_left = [extent.xMinimum(), extent.yMinimum()]
-            bot_right = [extent.xMaximum(), extent.yMinimum()]
-            top_right = [extent.xMaximum(), extent.yMaximum()]
-            top_left = [extent.xMinimum(), extent.yMaximum()]
+            if os.path.exists(masked_output_file):
+                i = 1
+                while True:
+                    modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                    if not os.path.exists(modified_output_file):
+                        masked_output_file = modified_output_file
+                        break
+                    i += 1
+            
+            bot_left = [rlayer.extent().xMinimum(), rlayer.extent().yMinimum()]
+            bot_right = [rlayer.extent().xMaximum(), rlayer.extent().yMinimum()]
+            top_right = [rlayer.extent().xMaximum(), rlayer.extent().yMaximum()]
+            top_left = [rlayer.extent().xMinimum(), rlayer.extent().yMaximum()]
             bbox_crop=MultiPolygon([Polygon([bot_left, bot_right, top_right, top_left])])
             with rasterio.open(output_file) as src:
                 data, _=rasterio.mask.mask(src,shapes=[bbox_crop],crop=True)
