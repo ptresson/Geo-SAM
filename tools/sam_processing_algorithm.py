@@ -1,6 +1,9 @@
 import os
 import time
+import shutil
+import rasterio.mask
 from sklearn.cluster import KMeans
+from shapely.geometry import MultiPolygon, Polygon
 from sklearn.decomposition import PCA
 import torchgeo
 import kornia.augmentation as K
@@ -110,7 +113,7 @@ def get_pixel_values_shp(raster_path, gdf):
 
 
 def array_to_geotiff(
-        array, 
+        array,
         output_file, 
         top_left_corner_coords, 
         pixel_width, 
@@ -139,7 +142,9 @@ def array_to_geotiff(
     with rasterio.open(output_file, 'w', driver='GTiff',
                        height=height, width=width, count=channels, dtype=dtype,
                        crs=crs, transform=transform) as ds:
+        
         ds.write(np.transpose(array, (2, 0, 1)))
+
 
 
 def array_to_geotiff_rf_classifier(
@@ -1089,10 +1094,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         #initialization of the bboxes list
         bboxes = []
         
-        for i, batch in enumerate(ds_dataloader) :
-            feedback.pushInfo(f'Batch: {i+1}')
-            for j, data in enumerate(batch):
-                feedback.pushInfo(f'Data: {j+1} shape : {data}')
         
         for current, batch in enumerate(ds_dataloader):
             start_time = time.time()
@@ -1290,7 +1291,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                         break
                     i += 1
             
-            #Maybe an error in the dimension of the reconstructed image
+            #extent
+            feedback.pushInfo(f'Coordonées : { extent.xMinimum(), extent.xMaximum(), extent.yMinimum(), extent.yMaximum()}')
+            #feedback.pushInfo(f'Coordonées of rlayer: { rlayer.extent().xMinimum(), rlayer.extent().xMaximum(), rlayer.extent().yMinimum(), rlayer.extent().yMaximum()}')
+            #feedback.pushInfo(f'Coordonées with bbox: { bboxes[0].minx, bboxes[-1].maxx, bboxes[0].miny, bboxes[-1].maxy}')
+            feedback.pushInfo(f'Bounding box: { bboxes}')
             array_to_geotiff(
                array=macro_img,
                top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
@@ -1303,6 +1308,31 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
                output_file = output_file,
             )
+            
+            output_directory = os.path.join(cwd, 'rasters')
+            output_file_base = 'masked_features.tiff'
+            masked_output_file = os.path.join(output_directory, output_file_base)
+            
+            bot_left = [extent.xMinimum(), extent.yMinimum()]
+            bot_right = [extent.xMaximum(), extent.yMinimum()]
+            top_right = [extent.xMaximum(), extent.yMaximum()]
+            top_left = [extent.xMinimum(), extent.yMaximum()]
+            bbox_crop=MultiPolygon([Polygon([bot_left, bot_right, top_right, top_left])])
+            with rasterio.open(output_file) as src:
+                data, _=rasterio.mask.mask(src,shapes=[bbox_crop],crop=True)
+                meta = src.meta.copy()
+                
+                meta.update({
+                    "driver": "GTiff",  # Specify the driver for TIFF format
+                    "height": data.shape[1],  # Update height based on the masked data shape
+                    "width": data.shape[2],   # Update width based on the masked data shape
+                    "transform": src.transform,  # Use the same transformation as the source
+                    "dtype": data.dtype  # Set the data type of the masked data
+                })
+                
+                with rasterio.open(masked_output_file, "w", **meta) as dst:
+                    dst.write(data)
+            
             
             if(self.HEAT_MAP == True) :
                 output_directory = os.path.join(cwd, 'Shape_file_test')
