@@ -1295,8 +1295,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             
             if(self.HEAT_MAP == True) :
-                output_directory = os.path.join(cwd, 'Shape_file_test')
-                output_file_base = 'newPoints.gpkg'
+                output_directory = os.path.join(cwd, 'shape_files_heat_map')
+                output_file_base = 'heat_map_test.gpkg'
                 output_file_template = os.path.join(output_directory, output_file_base)
             
                 gdf = gpd.read_file(output_file_template)
