@@ -665,7 +665,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.DIM_FEAT_RED = self.parameterAsInts(
             parameters, self.DIM_FEAT_RED, context
         )
-        self.DIM_KMEANS = self.parameterAsInts(
+        self.DIM_CLUSTER = self.parameterAsInts(
             parameters, self.DIM_CLUSTER, context
         )
 
@@ -1199,6 +1199,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             
             feedback.pushInfo(f"dim cluster : {self.DIM_CLUSTER[0]}")
+            feedback.pushInfo(f"dim cluster : {self.DIM_CLUSTER}")
             if (display_opt_1 == 'PCA') :
                 pca = PCA(int(self.DIM_FEAT_RED[0])) 
                 pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
