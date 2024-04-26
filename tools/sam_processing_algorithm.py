@@ -354,9 +354,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     DIM_CLUSTER = 'DIM_CLUSTER'
     HEAT_MAP = 'HEAT_MAP'
     BACKBONE_CHOICE = 'BACKBONE_CHOICE'
-    FEAT_RED = 'FEAT_RED'
-    DISPLAY_OPTION_1 = 'DISPLAY_OPTION_2'
-    DISPLAY_OPTION_2 = 'DISPLAY_OPTION_3'
+    DISPLAY_OPTION_1 = 'DISPLAY_OPTION_1'
+    DISPLAY_OPTION_2 = 'DISPLAY_OPTION_2'
     RANDOM_FOREST = 'RANDOM_FOREST'
     INPUT_RF = 'INPUT_RF'
     REUSE_RF = 'REUSE_RF'
@@ -924,8 +923,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         ]
         """
         
-        SamTestRasterDataset.filename_glob = rlayer_name
-        SamTestRasterDataset.all_bands = [
+        RasterDataset.filename_glob = rlayer_name
+        RasterDataset.all_bands = [
             rlayer.bandName(i_band) for i_band in range(1, rlayer.bandCount()+1)
         ]
         
@@ -944,14 +943,18 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             rlayer_ds = SamTestRasterDataset(
                 root=rlayer_dir, crs=crs.toWkt(), res=self.res, bands=input_bands, cache=False)
         """    
-        
-        
+        feedback.pushInfo(f"timm version : {timm.__version__}")
+        feedback.pushInfo(f"torchgeo version : {torchgeo.__version__}")
+        feedback.pushInfo(f'QGIS Python Path : {sys.executable}')
+        feedback.pushInfo(f"directory : {rlayer_dir}")
+        feedback.pushInfo(f"path : {rlayer_path}")
+        feedback.pushInfo(f"name : {rlayer_name}")
         if crs == rlayer.crs():
             rlayer_ds = RasterDataset( #normally SamTestRasterDataset
-                paths=rlayer_dir, crs=None, res=self.res, bands=input_bands, cache=False)
+                paths=rlayer_path, crs=None, res=self.res, bands=input_bands, cache=False)
         else:
             rlayer_ds = RasterDataset(
-                paths=rlayer_dir, crs=crs.toWkt(), res=self.res, bands=input_bands, cache=False)
+                paths=rlayer_path, crs=crs.toWkt(), res=self.res, bands=input_bands, cache=False)
             
         # \n raster_ds crs: {str(CRS(rlayer_ds.crs))}, \
         #rlayer_ds.transforms = transform_data
@@ -972,9 +975,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.sam_model = self.initialize_sam(
             model_type=model_type, sam_ckpt_path=ckpt_path)
         
-        feedback.pushInfo(f"timm version : {timm.__version__}")
-        feedback.pushInfo(f"torchgeo version : {torchgeo.__version__}")
-        feedback.pushInfo(f'QGIS Python Path : {sys.executable}')
+
         if 'CONDA_DEFAULT_ENV' in os.environ:
             conda_environment = os.environ['CONDA_DEFAULT_ENV']
             feedback.pushInfo("Conda Environment:", conda_environment)
@@ -1197,13 +1198,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             
-            
+            feedback.pushInfo(f"dim cluster : {self.DIM_CLUSTER[0]}")
             if (display_opt_1 == 'PCA') :
                 pca = PCA(int(self.DIM_FEAT_RED[0])) 
                 pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'K-means') :
-                    kmeans = KMeans(int(self.DIM_CLUSTER[0]))
+                    kmeans = KMeans(n_clusters=int(self.DIM_CLUSTER[0]))
                     pca_img = kmeans.fit_predict(pca_img)
                     feedback.pushInfo(f'In loop 2')
 
@@ -1217,7 +1218,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 pass
 
                 if (display_opt_2 == 'K-means'):
-                    kmeans = KMeans(int(self.DIM_CLUSTER[0]))
+                    kmeans = KMeans(n_cluster=int(self.DIM_CLUSTER[0]))
                     pca_img = kmeans.fit_predict(pca_img)
 
                 macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
