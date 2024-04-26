@@ -358,6 +358,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
     DISPLAY_OPTION_2 = 'DISPLAY_OPTION_2'
     RANDOM_FOREST = 'RANDOM_FOREST'
     INPUT_RF = 'INPUT_RF'
+    INPUT_HM = 'INPUT_HM'
     REUSE_RF = 'REUSE_RF'
     TEST = 'TEST'
     
@@ -576,6 +577,17 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         )
         
         self.addParameter(
+            QgsProcessingParameterFile(
+                name=self.INPUT_HM,
+                description=self.tr(
+                    'Input shapefile path for Heat Map (if heat_map is selected)'),
+            defaultValue=os.path.join(cwd,'shape_files_heat_map','heat_map.gpkg'),
+            #defaultValue = '',
+            ),
+            #num_band_param = self.INPUT.bandCount(),
+        )
+        
+        self.addParameter(
             QgsProcessingParameterBoolean(
                 self.RANDOM_FOREST,
                 self.tr("Use Random Forest to classify"),
@@ -609,6 +621,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             ),
             #num_band_param = self.INPUT.bandCount(),
         )
+        
 
         self.addParameter(
             QgsProcessingParameterNumber(
@@ -683,6 +696,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             parameters, self.INPUT, context)
         
         self.INPUT_RF = self.parameterAsFile(
+            parameters, self.INPUT_RF, context)
+        self.INPUT_HM = self.parameterAsFile(
             parameters, self.INPUT_RF, context)
         if rlayer is None:
             raise QgsProcessingException(
@@ -946,9 +961,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         feedback.pushInfo(f"timm version : {timm.__version__}")
         feedback.pushInfo(f"torchgeo version : {torchgeo.__version__}")
         feedback.pushInfo(f'QGIS Python Path : {sys.executable}')
-        feedback.pushInfo(f"directory : {rlayer_dir}")
-        feedback.pushInfo(f"path : {rlayer_path}")
-        feedback.pushInfo(f"name : {rlayer_name}")
         if crs == rlayer.crs():
             rlayer_ds = RasterDataset( #normally SamTestRasterDataset
                 paths=rlayer_path, crs=None, res=self.res, bands=input_bands, cache=False)
@@ -1198,8 +1210,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             
-            feedback.pushInfo(f"dim cluster : {self.DIM_CLUSTER[0]}")
-            feedback.pushInfo(f"dim cluster : {self.DIM_CLUSTER}")
             if (display_opt_1 == 'PCA') :
                 pca = PCA(int(self.DIM_FEAT_RED[0])) 
                 pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
@@ -1246,7 +1256,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f'Coordonées : { extent.xMinimum(), extent.xMaximum(), extent.yMinimum(), extent.yMaximum()}')
             #feedback.pushInfo(f'Coordonées of rlayer: { rlayer.extent().xMinimum(), rlayer.extent().xMaximum(), rlayer.extent().yMinimum(), rlayer.extent().yMaximum()}')
             #feedback.pushInfo(f'Coordonées with bbox: { bboxes[0].minx, bboxes[-1].maxx, bboxes[0].miny, bboxes[-1].maxy}')
-            feedback.pushInfo(f'Bounding box: { bboxes}')
             array_to_geotiff(
                array=macro_img,
                top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
@@ -1299,7 +1308,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 output_file_base = 'heat_map_test.gpkg'
                 output_file_template = os.path.join(output_directory, output_file_base)
             
-                gdf = gpd.read_file(output_file_template)
+                gdf = gpd.read_file(self.INPUT_HM)
                 gdf = get_pixel_values_shp(output_file, gdf)
                 #feedback.pushInfo(f'gdf : {gdf}')
             
