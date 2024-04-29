@@ -1234,6 +1234,13 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
                 macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
                 feedback.pushInfo(f'Sucessful !')
+                
+            if (display_opt_1 == '--Empty--' and display_opt_2 == 'K-means') :
+                kmeans = KMeans(n_clusters=int(self.DIM_CLUSTER[0]))
+                pca_img = kmeans.fit_predict(macro_img.reshape(-1, macro_img.shape[-1]))
+                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+                feedback.pushInfo(f'Sucessful to do k-means  !')
+                
             
             
             cwd = Path(__file__).parent.parent.absolute()
