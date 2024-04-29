@@ -939,6 +939,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         """
         
         RasterDataset.filename_glob = rlayer_name
+        feedback.pushInfo(f" name foo Raster : {RasterDataset.filename_glob}")
         RasterDataset.all_bands = [
             rlayer.bandName(i_band) for i_band in range(1, rlayer.bandCount()+1)
         ]
@@ -1123,6 +1124,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
 
             self.batch_input = self.rescale_img(
                 batch_input=batch['image'], range_value=range_value)
+            
+            self.batch_input[self.batch_input == float('-inf')] = 0
+            feedback.pushInfo(f"type batch_input : {type(self.batch_input)}")
+            feedback.pushInfo(f"batch_input : {self.batch_input}")
+            
 
             if not self.get_sam_feature(self.batch_input, feedback, backbone_choice=backbone_choice):
                 self.load_feature = False
@@ -1262,7 +1268,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             #extent
             feedback.pushInfo(f'Coordonées : { extent.xMinimum(), extent.xMaximum(), extent.yMinimum(), extent.yMaximum()}')
             #feedback.pushInfo(f'Coordonées of rlayer: { rlayer.extent().xMinimum(), rlayer.extent().xMaximum(), rlayer.extent().yMinimum(), rlayer.extent().yMaximum()}')
-            #feedback.pushInfo(f'Coordonées with bbox: { bboxes[0].minx, bboxes[-1].maxx, bboxes[0].miny, bboxes[-1].maxy}')
+            feedback.pushInfo(f'Coordonées with bbox: { bboxes[0].minx, bboxes[-1].maxx, bboxes[0].miny, bboxes[-1].maxy}')
             array_to_geotiff(
                array=macro_img,
                top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
