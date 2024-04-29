@@ -1219,6 +1219,14 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             if (display_opt_1 == 'PCA') :
                 pca = PCA(int(self.DIM_FEAT_RED[0])) 
                 pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                
+                explained_variance_ratio = pca.explained_variance_ratio_
+
+                cumulative_variance_ratio = np.cumsum(explained_variance_ratio)
+                
+                
+                feedback.pushInfo(f'explained variance per axis : {explained_variance_ratio*100}')
+                feedback.pushInfo(f'cumulative variance per axis : { cumulative_variance_ratio*100}')
                 feedback.pushInfo(f'In loop 1')
                 if (display_opt_2 == 'K-means') :
                     kmeans = KMeans(n_clusters=int(self.DIM_CLUSTER[0]))
