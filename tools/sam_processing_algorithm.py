@@ -31,12 +31,14 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import LabelEncoder
-#import umap.umap_ as umap_m
+#import umap
+#from umap.umap_ import UMAP
 
 #rasterio
 import rasterio
 import rasterio.mask
 from shapely.geometry import MultiPolygon, Polygon
+from rasterio.transform import from_origin
 
 #segmentanything
 from segment_anything import sam_model_registry, SamPredictor
@@ -80,7 +82,9 @@ from qgis.core import (QgsProcessing, Qgis,
                        QgsProcessingParameterRange,
                        QgsProcessingParameterFeatureSource,
                        QgsProcessingParameterDefinition,
-                       QgsProcessingParameterFeatureSink)
+                       QgsProcessingParameterFeatureSink,
+                       QgsRasterLayer,
+                       QgsProject)
 from qgis import processing
 
 
@@ -149,7 +153,7 @@ def array_to_geotiff(
         pixel_width (float): Width of a pixel in the raster.
         pixel_height (float): Height of a pixel in the raster.
     """
-    from rasterio.transform import from_origin
+    
     # Get the dimensions of the array
     height, width, channels = array.shape
     
@@ -886,7 +890,46 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             raise QgsProcessingException(
                 self.tr("Data value range is wrongly set or the image is with constant values."))
 
+        ############Trying to aggregate the image############
+        """
+        group = 9
+        cwd = Path(__file__).parent.parent.absolute()
+        output_directory = os.path.join(cwd, 'rasters')
+        output_file_base = 'aggregated_raster.tiff'
+ 
+
+        
+        
+        raster_data = rlayer.dataProvider().block(1, rlayer.extent(), rlayer.width(), rlayer.height())
+        #dataProvider().band(1).readPixels(rlayer.extent(), rlayer.width(), rlayer.height())
+        raster_array = np.array(raster_data).reshape(rlayer.height(), rlayer.width())
+        
+        height,width = rlayer.shape
+        new_height = height//group
+        new_width = width//group
+        
+        raster_patches = raster_array[:new_height*group, :new_width*group].reshape(new_height, group, new_width, group) 
+        aggregated_raster = raster_patches.mean(axis=(1, 3)).astype(np.uint8)
+        aggregated_layer_file = os.path.join(output_directory, output_file_base)
+        
+        array_to_geotiff(aggregated_raster,
+                         top_left_corner_coords= (rlayer.extent.xMinimum(), rlayer.extent.yMaximum()),
+                         pixel_height=rlayer.rasterUnitsPerPixelX()*group,
+                         pixel_width=rlayer.rasterUnitsPerPixelY()*group,
+                         crs = rlayer.crs().authid(),
+                         output_file = aggregated_layer_file)
+        """
+        aggregated_layer = QgsRasterLayer(
+    'type=xyz&url=file://aggregated_raster_layer.xyz', 
+    'Aggregated Raster Layer', 
+    'gdal'
+        )
+        """
+        QgsProject.instance().addMapLayer(aggregated_layer)
+"""
         # Send some information to the user
+        feedback.pushInfo(
+            f'Good Version of Plugin')
         feedback.pushInfo(
             f'Layer path: {rlayer_data_provider.dataSourceUri()}')
         # feedback.pushInfo(
@@ -1098,6 +1141,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         
         for current, batch in enumerate(ds_dataloader):
             start_time = time.time()
+            
         
             #Modif Dino :
             """
@@ -1126,8 +1170,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 batch_input=batch['image'], range_value=range_value)
             
             self.batch_input[self.batch_input == float('-inf')] = 0
-            feedback.pushInfo(f"type batch_input : {type(self.batch_input)}")
-            feedback.pushInfo(f"batch_input : {self.batch_input}")
+            self.batch_input[self.batch_input.isnan()] = 0
+            #feedback.pushInfo(f"type batch_input : {type(self.batch_input)}")
+            #feedback.pushInfo(f"batch_input : {self.batch_input}")
             
 
             if not self.get_sam_feature(self.batch_input, feedback, backbone_choice=backbone_choice):
@@ -1213,12 +1258,86 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             if(backbone_choice == 'Segment-anything') :
                 macro_img= reconstruct_img_feat_sam(feat_array, Nx, Ny)
             
-            
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
+            feedback.pushInfo (f'macro_img shape : {macro_img.shape}')
+         
+         
+            cwd = Path(__file__).parent.parent.absolute()
+         
+            output_directory = os.path.join(cwd, 'rasters')
+            output_file_base = 'features.tiff'
+            output_file = os.path.join(output_directory, output_file_base)
             
+
+            
+            if os.path.exists(output_file):
+                i = 1
+                while True:
+                    modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                    if not os.path.exists(modified_output_file):
+                        output_file = modified_output_file
+                        break
+                    i += 1
+                    
+            array_to_geotiff(
+               array=macro_img,
+               top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
+               #top_left_corner_coords= (rlayer.extent().xMinimum(), rlayer.extent().yMaximum()),
+               pixel_height= rlayer.rasterUnitsPerPixelX()*patch_size,
+               #pixel_height= rlayer.res*patch_size,
+               pixel_width=rlayer.rasterUnitsPerPixelY()*patch_size,
+               #pixel_width=rlayer.res()*patch_size,
+               crs = rlayer.crs().authid(),
+               #output_file='C:/Users/pierr/OneDrive/Documents/Administratif/Thaïlande/testfeatoption.tiff',
+               #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
+               output_file = output_file,
+            )
+            
+            bot_left = [rlayer.extent().xMinimum(), rlayer.extent().yMinimum()]
+            bot_right = [rlayer.extent().xMaximum(), rlayer.extent().yMinimum()]
+            top_right = [rlayer.extent().xMaximum(), rlayer.extent().yMaximum()]
+            top_left = [rlayer.extent().xMinimum(), rlayer.extent().yMaximum()]
+            
+            bbox_crop=MultiPolygon([Polygon([bot_left, bot_right, top_right, top_left])])
+            
+            
+            
+            output_file_base = 'cropped_features.tiff'
+            cropped_output_file = os.path.join(output_directory, output_file_base)
+            
+
+            
+            if os.path.exists(cropped_output_file):
+                i = 1
+                while True:
+                    modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
+                    if not os.path.exists(modified_output_file):
+                        cropped_output_file = modified_output_file
+                        break
+                    i += 1
+            
+            
+            with rasterio.open(output_file) as src:
+                data, _=rasterio.mask.mask(src,shapes=[bbox_crop],crop=True)
+                meta = src.meta.copy()
+                transform = from_origin(rlayer.extent().xMinimum(), rlayer.extent().yMaximum(), rlayer.rasterUnitsPerPixelY()*patch_size, rlayer.rasterUnitsPerPixelX()*patch_size)
+                
+                meta.update({
+                    "driver": "GTiff",  
+                    "height": data.shape[1],  
+                    "width": data.shape[2],   
+                    "transform": transform,  # Use the same transformation as the source
+                    "dtype": data.dtype  
+                })
+                
+                with rasterio.open(cropped_output_file, "w", **meta) as dst:
+                    dst.write(data)
+            feedback.pushInfo (f'data shape : {data.shape}')
+            data = data.transpose(1,2,0)
             if (display_opt_1 == 'PCA') :
                 pca = PCA(int(self.DIM_FEAT_RED[0])) 
-                pca_img = pca.fit_transform(macro_img.reshape(-1, macro_img.shape[-1]))
+                #pca_img = pca.fit_transform(data.reshape(-1, data.shape[0]))
+                pca_img = pca.fit_transform(data.reshape(-1, data.shape[-1]))
                 
                 explained_variance_ratio = pca.explained_variance_ratio_
 
@@ -1233,7 +1352,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     pca_img = kmeans.fit_predict(pca_img)
                     feedback.pushInfo(f'In loop 2')
 
-                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+                #data = pca_img.reshape((data.shape[1], data.shape[2],-1))
+                data = pca_img.reshape((data.shape[0], data.shape[1],-1))
                 feedback.pushInfo(f'Sucessful !')
                 
             if (display_opt_1 == 'UMAP') :
@@ -1257,10 +1377,10 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 
             
             
-            cwd = Path(__file__).parent.parent.absolute()
+            
             
             output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'features_test_new_size.tiff'
+            output_file_base = 'features_test_PCA.tiff'
             output_file = os.path.join(output_directory, output_file_base)
 
 
@@ -1277,9 +1397,11 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f'Coordonées : { extent.xMinimum(), extent.xMaximum(), extent.yMinimum(), extent.yMaximum()}')
             #feedback.pushInfo(f'Coordonées of rlayer: { rlayer.extent().xMinimum(), rlayer.extent().xMaximum(), rlayer.extent().yMinimum(), rlayer.extent().yMaximum()}')
             feedback.pushInfo(f'Coordonées with bbox: { bboxes[0].minx, bboxes[-1].maxx, bboxes[0].miny, bboxes[-1].maxy}')
+            
             array_to_geotiff(
-               array=macro_img,
-               top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
+               array=data,
+               #top_left_corner_coords= (bboxes[0].minx, bboxes[-1].maxy),
+               top_left_corner_coords= (rlayer.extent().xMinimum(), rlayer.extent().yMaximum()),
                pixel_height= rlayer.rasterUnitsPerPixelX()*patch_size,
                #pixel_height= rlayer.res*patch_size,
                pixel_width=rlayer.rasterUnitsPerPixelY()*patch_size,
@@ -1307,17 +1429,20 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             bot_right = [rlayer.extent().xMaximum(), rlayer.extent().yMinimum()]
             top_right = [rlayer.extent().xMaximum(), rlayer.extent().yMaximum()]
             top_left = [rlayer.extent().xMinimum(), rlayer.extent().yMaximum()]
+            
             bbox_crop=MultiPolygon([Polygon([bot_left, bot_right, top_right, top_left])])
+            
             with rasterio.open(output_file) as src:
                 data, _=rasterio.mask.mask(src,shapes=[bbox_crop],crop=True)
                 meta = src.meta.copy()
+                transform = from_origin(rlayer.extent().xMinimum(), rlayer.extent().yMaximum(), rlayer.rasterUnitsPerPixelY()*patch_size, rlayer.rasterUnitsPerPixelX()*patch_size)
                 
                 meta.update({
-                    "driver": "GTiff",  # Specify the driver for TIFF format
-                    "height": data.shape[1],  # Update height based on the masked data shape
-                    "width": data.shape[2],   # Update width based on the masked data shape
-                    "transform": src.transform,  # Use the same transformation as the source
-                    "dtype": data.dtype  # Set the data type of the masked data
+                    "driver": "GTiff",  
+                    "height": data.shape[1],  
+                    "width": data.shape[2],   
+                    "transform": transform,  # Use the same transformation as the source
+                    "dtype": data.dtype  
                 })
                 
                 with rasterio.open(masked_output_file, "w", **meta) as dst:
@@ -1453,6 +1578,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     crs=rlayer.crs().authid(),
             # dtype='int8', ## if clusters
                     )
+                
+            
             
             
 
