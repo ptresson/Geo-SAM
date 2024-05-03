@@ -29,6 +29,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import LabelEncoder
 #import umap
@@ -1231,7 +1232,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             Ny = int(len(bboxes) / Nx)
             
             #Show some useful informations about the reconstruction of the image if needed
-            """
+            
             feedback.pushInfo(f"length of Nx : {Nx}")
             feedback.pushInfo(f"length of Ny : {Ny}")
         
@@ -1252,7 +1253,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             reconstructed_width = w * Nx
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
-            """
+            
             if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
                 macro_img = reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
             if(backbone_choice == 'Segment-anything') :
@@ -1260,6 +1261,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             patch_size = 16 #depends on the kind of ViT you're using ==> Same for sam, dinov2
             feedback.pushInfo (f'macro_img shape : {macro_img.shape}')
+            feedback.pushInfo(f'macro_img : {macro_img}')
          
          
             cwd = Path(__file__).parent.parent.absolute()
@@ -1371,8 +1373,8 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                 
             if (display_opt_1 == '--Empty--' and display_opt_2 == 'K-means') :
                 kmeans = KMeans(n_clusters=int(self.DIM_CLUSTER[0]))
-                pca_img = kmeans.fit_predict(macro_img.reshape(-1, macro_img.shape[-1]))
-                macro_img = pca_img.reshape((macro_img.shape[0], macro_img.shape[1],-1))
+                pca_img = kmeans.fit_predict(data.reshape(-1, data.shape[-1]))
+                macro_img = pca_img.reshape((data.shape[0], data.shape[1],-1))
                 feedback.pushInfo(f'Sucessful to do k-means  !')
                 
             
@@ -1411,42 +1413,6 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                #output_file = os.path.join(cwd,'rasters','testfeat.tiff'),
                output_file = output_file,
             )
-            
-            output_directory = os.path.join(cwd, 'rasters')
-            output_file_base = 'masked_features.tiff'
-            masked_output_file = os.path.join(output_directory, output_file_base)
-            
-            if os.path.exists(masked_output_file):
-                i = 1
-                while True:
-                    modified_output_file = os.path.join(output_directory, f"{output_file_base.split('.')[0]}_{i}.tiff")
-                    if not os.path.exists(modified_output_file):
-                        masked_output_file = modified_output_file
-                        break
-                    i += 1
-            
-            bot_left = [rlayer.extent().xMinimum(), rlayer.extent().yMinimum()]
-            bot_right = [rlayer.extent().xMaximum(), rlayer.extent().yMinimum()]
-            top_right = [rlayer.extent().xMaximum(), rlayer.extent().yMaximum()]
-            top_left = [rlayer.extent().xMinimum(), rlayer.extent().yMaximum()]
-            
-            bbox_crop=MultiPolygon([Polygon([bot_left, bot_right, top_right, top_left])])
-            
-            with rasterio.open(output_file) as src:
-                data, _=rasterio.mask.mask(src,shapes=[bbox_crop],crop=True)
-                meta = src.meta.copy()
-                transform = from_origin(rlayer.extent().xMinimum(), rlayer.extent().yMaximum(), rlayer.rasterUnitsPerPixelY()*patch_size, rlayer.rasterUnitsPerPixelX()*patch_size)
-                
-                meta.update({
-                    "driver": "GTiff",  
-                    "height": data.shape[1],  
-                    "width": data.shape[2],   
-                    "transform": transform,  # Use the same transformation as the source
-                    "dtype": data.dtype  
-                })
-                
-                with rasterio.open(masked_output_file, "w", **meta) as dst:
-                    dst.write(data)
             
             
             if(self.HEAT_MAP == True) :
