@@ -1336,6 +1336,17 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
                     dst.write(data)
             feedback.pushInfo (f'data shape : {data.shape}')
             data = data.transpose(1,2,0)
+            """
+            max_clusters = 10
+            silhouette_scores = []
+            for n_clusters in range(2, max_clusters + 1):
+                sil_img = data.reshape(-1, data.shape[-1])
+                kmeans_silhouette = KMeans(n_clusters=n_clusters, random_state=42)
+                cluster_labels = kmeans_silhouette.fit_predict(sil_img)
+                silhouette_avg = silhouette_score(sil_img, cluster_labels)
+                silhouette_scores.append(silhouette_avg)
+                feedback.pushInfo(f"For n_clusters = {n_clusters}, the average silhouette_score is : {silhouette_avg}")
+            """
             if (display_opt_1 == 'PCA') :
                 pca = PCA(int(self.DIM_FEAT_RED[0])) 
                 #pca_img = pca.fit_transform(data.reshape(-1, data.shape[0]))
