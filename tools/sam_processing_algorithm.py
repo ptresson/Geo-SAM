@@ -703,7 +703,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
         self.INPUT_RF = self.parameterAsFile(
             parameters, self.INPUT_RF, context)
         self.INPUT_HM = self.parameterAsFile(
-            parameters, self.INPUT_RF, context)
+            parameters, self.INPUT_HM, context)
         if rlayer is None:
             raise QgsProcessingException(
                 self.invalidRasterError(parameters, self.INPUT))
@@ -1232,7 +1232,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             Ny = int(len(bboxes) / Nx)
             
             #Show some useful informations about the reconstruction of the image if needed
-            
+            """
             feedback.pushInfo(f"length of Nx : {Nx}")
             feedback.pushInfo(f"length of Ny : {Ny}")
         
@@ -1253,7 +1253,7 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             reconstructed_width = w * Nx
             feedback.pushInfo(f"hauteur de l'image reconstruite : {reconstructed_height}")
             feedback.pushInfo(f"largeur de l'image reconstruite : {reconstructed_width}")
-            
+            """
             if(backbone_choice in ['ViT-base', 'MAE-base' , 'Dinov2']) :
                 macro_img = reconstruct_img_feat_dinov2(feat_array, Nx, Ny)
             if(backbone_choice == 'Segment-anything') :
@@ -1427,9 +1427,9 @@ class SamProcessingAlgorithm(QgsProcessingAlgorithm):
             
             
             if(self.HEAT_MAP == True) :
-                output_directory = os.path.join(cwd, 'shape_files_heat_map')
-                output_file_base = 'heat_map_test.gpkg'
-                output_file_template = os.path.join(output_directory, output_file_base)
+                
+                feedback.pushInfo(f"Input HM : {self.INPUT_HM}")
+
             
                 gdf = gpd.read_file(self.INPUT_HM)
                 gdf = get_pixel_values_shp(output_file, gdf)
